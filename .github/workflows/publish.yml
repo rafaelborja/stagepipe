@@ -1,0 +1,55 @@
+name: Publish to PyPI
+
+# Uses PyPI Trusted Publishing: no API token is stored anywhere.
+# PyPI side (one time): add a publisher for project "stagepipe" with
+#   owner rafaelborja, repository stagepipe, workflow publish.yml, environment pypi.
+#
+# Runs on every published GitHub release, and by hand for an existing tag:
+#   gh workflow run publish.yml -f ref=v0.0.1
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or branch to build and publish
+        required: true
+        default: main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test
+        run: PYTHONPATH=src python tests/stress.py
+      - name: Build
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/stagepipe/
+    permissions:
+      id-token: write          # required for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
