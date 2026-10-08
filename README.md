@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/stagepipe)](https://pypi.org/project/stagepipe/)
 [![CI](https://github.com/rafaelborja/stagepipe/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelborja/stagepipe/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%20to%203.14-blue)](https://github.com/rafaelborja/stagepipe/actions/workflows/ci.yml)
 [![License](https://img.shields.io/pypi/l/stagepipe)](https://github.com/rafaelborja/stagepipe/blob/main/LICENSE)
 [![Downloads](https://img.shields.io/pypi/dm/stagepipe)](https://pypistats.org/packages/stagepipe)
 
@@ -69,6 +70,11 @@ cannot render 500 page images while a slow stage is still on page 3. Measured in
 aiostream is excellent and well maintained, and most of that difference is simply `asyncio`
 being loaded. If you already run an event loop it costs you nothing extra. If you do not, and
 memory is tight, a thread-and-queue design is the lighter tool. Reproduce with `bench/memory.py`.
+
+Continuous integration repeats the footprint measurement on Linux, Windows and macOS for every
+Python from 3.10 to 3.14 (see `bench/footprint.py` and the run summaries). Across those 15
+combinations, importing stagepipe cost between 1.6 and 2.6 MB of resident memory and the
+machinery cost between 2 and 17 microseconds per item per stage.
 
 **Seconds, not nanoseconds.** stagepipe is for pipelines whose steps take milliseconds to minutes
 (an OCR page, an API call, a transcode), where running in parallel saves *seconds*. Ten
@@ -278,7 +284,7 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 ## Status and known limits
 
 **Alpha, version 0.0.2.** It was extracted from a working document-processing pipeline where it
-replaces a hand-rolled look-ahead loop, and it passes its stress suite on CPython 3.12 and 3.15.
+replaces a hand-rolled look-ahead loop, and it passes its stress suite in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
 In its first real use, five stages with different worker counts and at most 8 items in flight
 gave output identical to the sequential loop, and cancelling then resuming worked.
 
@@ -348,8 +354,10 @@ do not cover and that the older thread-based libraries have left behind.
 - [ ] Verified on free-threaded Python builds.
 
 ### Python versions
-Developed against CPython 3.12 and tested on 3.15 (release candidate). Python 3.15's lazy
-imports (PEP 810) are on the list: the optional features above will load only when used, so
+Tested in CI on CPython 3.10, 3.11, 3.12, 3.13 and 3.14, on Linux, Windows and macOS, and the
+release workflow only publishes if the whole matrix passes. Python 3.15 works locally (release
+candidate) and joins the CI matrix and the release workflow as soon as GitHub's runners offer it.
+Python 3.15's lazy imports (PEP 810) are on the list: the optional features above will load only when used, so
 `import stagepipe` stays near-instant.
 
 Want something on this list sooner, or something that is missing? Open an

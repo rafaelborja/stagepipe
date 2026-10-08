@@ -7,6 +7,11 @@ All notable changes to stagepipe are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- CI matrix: Python 3.10 to 3.14 on Linux, Windows and macOS, with a merged footprint table
+  (memory and time) in every run summary. The release workflow now runs it first and publishes
+  only if it passes. Python 3.15 will be added when GitHub runners offer it.
+- `bench/footprint.py` and `bench/report.py`; two examples (`examples/pizza_kitchen.py`,
+  `examples/compress_folder.py`); README badges; Python version classifiers.
 - README: "Which one should I use?" explains when to pick aiostream (code that is already `async`) and
   when to pick stagepipe (blocking functions, small memory, persistence without a database, planned).
 
