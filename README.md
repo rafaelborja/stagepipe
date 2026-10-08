@@ -280,6 +280,10 @@ python bench/memory.py        # memory numbers above (needs psutil; aiostream op
 
 See [CHANGELOG.md](https://github.com/rafaelborja/stagepipe/blob/main/CHANGELOG.md).
 
+## Author
+
+Built and maintained by [Rafael Borja](https://github.com/rafaelborja).
+
 ## License
 
 Apache License 2.0. See [LICENSE](https://github.com/rafaelborja/stagepipe/blob/main/LICENSE).

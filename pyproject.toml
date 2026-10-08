@@ -27,6 +27,7 @@ dependencies = []
 Homepage = "https://github.com/rafaelborja/stagepipe"
 Issues = "https://github.com/rafaelborja/stagepipe/issues"
 Source = "https://github.com/rafaelborja/stagepipe"
+Author = "https://github.com/rafaelborja"
 
 [tool.setuptools.packages.find]
 where = ["src"]
