@@ -1,5 +1,10 @@
 # stagepipe
 
+[![PyPI](https://img.shields.io/pypi/v/stagepipe)](https://pypi.org/project/stagepipe/)
+[![CI](https://github.com/rafaelborja/stagepipe/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelborja/stagepipe/actions/workflows/ci.yml)
+[![License](https://img.shields.io/pypi/l/stagepipe)](https://github.com/rafaelborja/stagepipe/blob/main/LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/stagepipe)](https://pypistats.org/packages/stagepipe)
+
 **Run your slow, blocking steps in parallel, and let every item move on the moment the next step is free.**
 
 A tiny pipeline for plain Python: no event loop, no server, no dependencies, about 130 lines of
@@ -151,6 +156,33 @@ docs = run(urls, [
 | `on_done=callable` | Called with `(index, value)` as each item leaves the last stage. Good for progress bars. **It runs in a worker thread**, and concurrently if the last stage has several workers, so it must be thread-safe (or make the last stage `ordered`, which has exactly one worker). |
 
 If any stage raises, new work stops, workers drain, and the first exception is re-raised from `run()`.
+
+---
+
+## Examples
+
+Two runnable scripts in [`examples/`](https://github.com/rafaelborja/stagepipe/tree/main/examples).
+Both run straight from a clone, with no install and no extra packages.
+
+**A pizza kitchen** (`examples/pizza_kitchen.py`), the playful one. Eight orders go through dough,
+toppings, two ovens and a boxing station. It prints when each pizza leaves, then a timeline of
+what every station was doing, and compares with a kitchen where each station finishes the whole
+batch first:
+
+```
+  dough    222223333355555...........788888....................................
+  toppings .....22222233333335555555......7888888..............................
+  oven     ...........111111111111113333333333333555555555555588888888888888...
+  box      .........................12...........34...........56...........788.
+
+Kitchen 1 finished in 2.02s, kitchen 2 in 3.25s: 1.6x faster, and the first pizza left
+after 0.78s instead of 3.25s.
+```
+
+**Compress a folder** (`examples/compress_folder.py`), the useful one. Read, gzip and write every
+file in a folder as separate stages, with `max_in_flight=6` so only six files are ever in memory,
+however big the folder is. On 24 files it ran about **4x faster than one file at a time**.
+Point it at your own folders with `python examples/compress_folder.py SRC OUT`.
 
 ---
 
@@ -334,6 +366,8 @@ pip install -e .
 python tests/stress.py        # plain script, no pytest needed
 python bench/bench.py         # speed numbers above
 python bench/memory.py        # memory numbers above (needs psutil; aiostream optional)
+python bench/footprint.py     # memory and time on your Python and OS
+python examples/pizza_kitchen.py
 ```
 
 ## Changelog
