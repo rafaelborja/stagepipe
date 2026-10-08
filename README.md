@@ -283,7 +283,7 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 
 ## Status and known limits
 
-**Alpha, version 0.0.2.** It was extracted from a working document-processing pipeline where it
+**Alpha, version 0.0.3.** It was extracted from a working document-processing pipeline where it
 replaces a hand-rolled look-ahead loop, and it passes its stress suite in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
 In its first real use, five stages with different worker counts and at most 8 items in flight
 gave output identical to the sequential loop, and cancelling then resuming worked.

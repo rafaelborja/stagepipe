@@ -6,6 +6,15 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
+Planned work is described in the [roadmap](README.md#roadmap). The first item is a smaller memory footprint
+(no `dataclasses`/`typing` at run time, lazy input, `keep_results=False`); a prototype cuts the import
+cost from about 2.4 MB to about 0.2 MB. Known defects in 0.0.1 are tracked
+as [issues](https://github.com/rafaelborja/stagepipe/issues).
+
+## [0.0.3] - 2026-10-08
+
+Visibility, trust and documentation. No change to the library code: `pipeline.py` is the same as in 0.0.1 and 0.0.2.
+
 ### Added
 - CI matrix: Python 3.10 to 3.14 on Linux, Windows and macOS, with a merged footprint table
   (memory and time) in every run summary. The release workflow now runs it first and publishes
@@ -15,10 +24,6 @@ All notable changes to stagepipe are recorded here. The format follows
 - README: "Which one should I use?" explains when to pick aiostream (code that is already `async`) and
   when to pick stagepipe (blocking functions, small memory, persistence without a database, planned).
 
-Planned work is described in the [roadmap](README.md#roadmap). The first item is a smaller memory footprint
-(no `dataclasses`/`typing` at run time, lazy input, `keep_results=False`); a prototype cuts the import
-cost from about 2.4 MB to about 0.2 MB. Known defects in 0.0.1 are tracked
-as [issues](https://github.com/rafaelborja/stagepipe/issues).
 
 ## [0.0.2] - 2026-10-08
 
@@ -57,6 +62,7 @@ First public release (alpha).
   in one list, so memory is not yet bounded by `max_in_flight` alone.
 - No failure recovery: the first exception aborts the run.
 
-[Unreleased]: https://github.com/rafaelborja/stagepipe/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/rafaelborja/stagepipe/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/rafaelborja/stagepipe/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/rafaelborja/stagepipe/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rafaelborja/stagepipe/releases/tag/v0.0.1
