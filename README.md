@@ -52,8 +52,8 @@ the script is `bench/` in the repo.)
 **Reliable by being small.** Few moving parts, no global state, every run is independent
 (you can run several at once). Shutdown, errors and cancel paths are covered by a stress suite
 that runs randomized pipelines (random sizes, worker counts and window sizes), failures in the
-first and last stage, bad configuration, and checks that no threads are left behind. Known gaps
-are listed honestly [below](#status-and-known-limits).
+first and last stage, bad configuration, and checks that no threads are left behind. It already runs in two production services (see
+[Status](#status-and-known-limits)). Known gaps are listed honestly there.
 
 **Built for small memory.** The target is serverless functions, containers with a few hundred MB,
 and small devices. That is why there is no broker, no database and no event loop: nothing to
@@ -286,8 +286,13 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 
 **Alpha, version 0.0.3.** It was extracted from a working document-processing pipeline where it
 replaces a hand-rolled look-ahead loop, and it passes its stress suite in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
-In its first real use, five stages with different worker counts and at most 8 items in flight
-gave output identical to the sequential loop, and cancelling then resuming worked.
+**In use today.** Two services run it in production, and neither needed a change to the library:
+
+- A **document-extraction** pipeline: five stages with different worker counts and at most 8 items
+  in flight. Output was identical to the sequential loop on every test page, and cancelling then
+  resuming a job works.
+- An **audio-transcription** service, in three pipelines. One job of three audio chunks took 39 s
+  instead of about 95 s run one after another.
 
 Things this first version does **not** do well yet. They are tracked as
 [issues](https://github.com/rafaelborja/stagepipe/issues) and are the first things on the roadmap:
