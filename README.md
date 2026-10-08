@@ -326,12 +326,16 @@ do not cover and that the older thread-based libraries have left behind.
     are handed over as they finish;
   - workers let go of the last item they handled as soon as they are idle;
   - optional smaller thread stacks for very small containers.
-- [ ] Failure policy per run: `collect` failed items and finish the rest, `skip`, or `retry(n, backoff)`.
+- [ ] Failure policy: `on_error` per stage or per run (`collect` failed items and finish the rest, `skip`,
+      `raise`, or `retry(n, backoff)`), so one bad item never kills a long job. *Asked for by both
+      production users, who each wrapped every stage function in try/except.*
+- [ ] Partial results on cancel: return what finished, with a marker for unfinished items.
 - [ ] Per-worker setup: `Stage(init=...)`, run once in each worker thread, e.g. one model
       session per worker. *Asked for by the first real user, who had to build it by hand with
       `threading.local()`.*
-- [ ] A bottleneck report after every run: per stage, busy time against waiting time, items
-      done and queue depth, so the stage to scale is obvious. *Also asked for by the first real
+- [ ] A bottleneck report after every run: per stage and per item, **queue wait time** (item ready, no
+      free worker) against run time, busy and idle totals, items done and queue depth, so the
+      stage to scale is obvious. Wait time cannot be measured from inside a stage function. *Also asked for by the first real
       user, who timed inside their stage functions.*
 
 ### Then: make it safe to rerun and easy to watch (0.2)
@@ -341,7 +345,9 @@ do not cover and that the older thread-based libraries have left behind.
 - [ ] **Events for dashboards**: a stable, versioned event stream (enter/exit per stage, worker,
       duration, queue depth) written as JSON lines or sent to a callback. A dashboard can be a
       separate project that just reads it.
-- [ ] Shared limits across stages, e.g. a `gpu=1` slot that three stages compete for.
+- [ ] Shared limits across stages, e.g. a `gpu=1` slot that three stages compete for, and
+      `Stage(limiter=<Semaphore>)` so one semaphore caps a resource across several runs in the same
+      process (three runs of 3 workers must not put 9 calls on a service that accepts 4).
 - [ ] A memory budget in bytes, not only an item count.
 
 ### Later: bigger shapes (0.3 and beyond)
