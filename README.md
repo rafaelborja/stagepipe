@@ -65,6 +65,29 @@ aiostream is excellent and well maintained, and most of that difference is simpl
 being loaded. If you already run an event loop it costs you nothing extra. If you do not, and
 memory is tight, a thread-and-queue design is the lighter tool. Reproduce with `bench/memory.py`.
 
+**Seconds, not nanoseconds.** stagepipe is for pipelines whose steps take milliseconds to minutes
+(an OCR page, an API call, a transcode), where running in parallel saves *seconds*. Ten
+microseconds of bookkeeping per item disappears next to that. So whenever speed and footprint
+pull in different directions, footprint wins: we are happy to spend a few milliseconds to save
+kilobytes.
+
+**Where today's ~2 MB goes.** Measured by importing each module alone in a fresh process
+(the numbers overlap, because these modules share dependencies, so they do not add up):
+
+| Import | Extra resident memory | Why it is here |
+|---|---|---|
+| `dataclasses` | about 1.7 MB | Pulls in `inspect`, `re` and more, just to generate `__init__` for the small `Stage` class. |
+| `typing` | about 0.7 MB | Only for type hints, which are never evaluated at run time. |
+| `queue` | about 0.4 MB | The thread-safe queue; the C implementation underneath is much smaller. |
+| stagepipe's own code | close to 0 | |
+
+Neither `dataclasses` nor `typing` is needed to run a pipeline. They are conveniences, and
+removing them is the first item on the [roadmap](#roadmap). A prototype already brings the import
+cost from about 2.4 MB to about 0.2 MB: `Stage` becomes a few lines of plain Python, the type
+hints are only read by type checkers, and `threading` plus the C queue load on the first `run()`
+instead of at import. The same prototype also feeds items lazily and can drop results as they
+are consumed, so memory stays flat however many items go through.
+
 ---
 
 ## The idea in one picture
@@ -200,7 +223,17 @@ do not cover and that the older thread-based libraries have left behind.
 
 ### Next: make the basics trustworthy (0.1)
 - [ ] Ctrl-C and cancel stop promptly and cleanly.
-- [ ] Bounded memory: lazy input, streaming results (`for r in stream(...)`), `keep_results=False`.
+- [ ] **Smaller footprint**, because memory is the point of this library:
+  - drop `dataclasses` and `typing` at run time, and replace the little we use of them with a few
+    lines of our own (about 2.4 MB less);
+  - import nothing until the first `run()`; on Python 3.15 this also plays well with the new
+    lazy-import flag (`-X lazy_imports`) and `__lazy_modules__`;
+  - use the C queue directly instead of the `queue` module;
+  - pull input lazily instead of copying it into a list, so a generator is never materialised;
+  - `keep_results=False` and streaming results (`for r in stream(...)`): nothing is kept, results
+    are handed over as they finish;
+  - workers let go of the last item they handled as soon as they are idle;
+  - optional smaller thread stacks for very small containers.
 - [ ] Failure policy per run: `collect` failed items and finish the rest, `skip`, or `retry(n, backoff)`.
 - [ ] Per-worker setup: `Stage(init=...)`, e.g. one model session per worker.
 - [ ] A bottleneck report after every run: which stage was busy, which waited, what to scale.

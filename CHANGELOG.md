@@ -6,7 +6,9 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
-Planned work is described in the [roadmap](README.md#roadmap). Known defects in 0.0.1 are tracked
+Planned work is described in the [roadmap](README.md#roadmap). The first item is a smaller memory footprint
+(no `dataclasses`/`typing` at run time, lazy input, `keep_results=False`); a prototype cuts the import
+cost from about 2.4 MB to about 0.2 MB. Known defects in 0.0.1 are tracked
 as [issues](https://github.com/rafaelborja/stagepipe/issues).
 
 ## [0.0.1] - 2026-10-08
