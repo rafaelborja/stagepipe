@@ -159,7 +159,7 @@ docs = run(urls, [
 | `ordered=True` | The stage sees items in index order (needs `workers=1`). Use it when a stage carries state across items. Earlier stages still run out of order. |
 | `max_in_flight=M` | At most M items are being processed at any moment. Bounds memory and keeps stages balanced. |
 | `cancelled=callable` | Checked before every call; when it returns true the run stops and raises `Cancelled`. |
-| `on_done=callable` | Called with `(index, value)` as each item leaves the last stage. Good for progress bars. **It runs in a worker thread**, and concurrently if the last stage has several workers, so it must be thread-safe (or make the last stage `ordered`, which has exactly one worker). |
+| `on_done=callable` | Called with `(index, value)` as each item leaves the last stage. Good for progress bars. **It runs in a worker thread**, and concurrently if the last stage has several workers, so it must be thread-safe (or make the last stage `ordered`, which has exactly one worker). If it raises, the run is aborted and the exception is re-raised from `run()`, like an error in a stage. |
 
 If any stage raises, new work stops, workers drain, and the first exception is re-raised from `run()`.
 
