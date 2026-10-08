@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "Rafael Borja" }]
 keywords = ["pipeline", "threads", "concurrency", "parallel", "batch", "producer-consumer", "ocr", "etl"]
 classifiers = [
   "Development Status :: 3 - Alpha",
