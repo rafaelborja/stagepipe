@@ -202,7 +202,31 @@ These come from running stagepipe on a real five-stage document pipeline.
 
 - Not a job queue or scheduler: no broker, no workers on other machines, no persistence (yet, see the roadmap).
 - Not a workflow engine with branching graphs (yet): stages form a straight line.
-- Not async. If your code is already `async`, use [aiostream](https://github.com/vxgmichel/aiostream).
+- Not async: there is no event loop. If your code is already `async`, see the next section.
+
+---
+
+## Which one should I use?
+
+**If your code is already async, use [aiostream](https://github.com/vxgmichel/aiostream).**
+"Already async" means your steps are `async def` functions that you `await`: an async HTTP client,
+an async database driver, `asyncio` tasks. Your program already runs an event loop, and
+aiostream chains those steps on it directly. Pushing async code through threads would be a step
+backwards, and stagepipe would add nothing.
+
+**If your steps are ordinary blocking functions, use stagepipe.** OCR engines, onnxruntime,
+PyTorch, `requests`, PDF and image libraries, subprocesses: plain `def` functions you can call
+and test on their own. There is no event loop to start and nothing to wrap in `async`.
+
+Two more reasons to pick stagepipe, both about running small:
+
+- **Small memory footprint.** No event loop and no heavy imports. Loading `asyncio` alone costs
+  about 6 MB of resident memory on CPython 3.12; stagepipe is about 2 MB today and the roadmap
+  takes it to a few hundred KB. That matters in serverless functions and on small devices.
+- **Surviving a crash without a database** (planned for 0.2, not in 0.0.x yet). The design is
+  plain files: one small file per finished item and an append-only journal, with memory use that
+  does not grow with the number of items. aiostream has no persistence of any kind, so with it
+  you would build that yourself.
 
 ---
 

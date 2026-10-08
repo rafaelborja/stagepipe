@@ -6,6 +6,10 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- README: "Which one should I use?" explains when to pick aiostream (code that is already `async`) and
+  when to pick stagepipe (blocking functions, small memory, persistence without a database, planned).
+
 Planned work is described in the [roadmap](README.md#roadmap). The first item is a smaller memory footprint
 (no `dataclasses`/`typing` at run time, lazy input, `keep_results=False`); a prototype cuts the import
 cost from about 2.4 MB to about 0.2 MB. Known defects in 0.0.1 are tracked
