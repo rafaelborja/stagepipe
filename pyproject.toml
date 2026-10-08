@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stagepipe"
+version = "0.0.1"
+description = "Staged pipelines for blocking Python code: per-stage thread workers, no stage barrier, ordered stages, bounded in-flight. Standard library only."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Rafael Borja" }]
+keywords = ["pipeline", "threads", "concurrency", "parallel", "batch", "producer-consumer", "ocr", "etl"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/rafaelborja/stagepipe"
+Issues = "https://github.com/rafaelborja/stagepipe/issues"
+Source = "https://github.com/rafaelborja/stagepipe"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stagepipe = ["py.typed"]
