@@ -148,7 +148,7 @@ docs = run(urls, [
 | `ordered=True` | The stage sees items in index order (needs `workers=1`). Use it when a stage carries state across items. Earlier stages still run out of order. |
 | `max_in_flight=M` | At most M items are being processed at any moment. Bounds memory and keeps stages balanced. |
 | `cancelled=callable` | Checked before every call; when it returns true the run stops and raises `Cancelled`. |
-| `on_done=callable` | Called with `(index, value)` as each item leaves the last stage. Good for progress bars. |
+| `on_done=callable` | Called with `(index, value)` as each item leaves the last stage. Good for progress bars. **It runs in a worker thread**, and concurrently if the last stage has several workers, so it must be thread-safe (or make the last stage `ordered`, which has exactly one worker). |
 
 If any stage raises, new work stops, workers drain, and the first exception is re-raised from `run()`.
 
@@ -169,6 +169,34 @@ exactly where threads help:
 Python threads run native code (NumPy, onnxruntime, torch, image libraries, HTTP, subprocesses)
 in parallel because those release the GIL. Pure-Python number crunching will not speed up in a
 thread. Use a process pool inside a stage function for that.
+
+### Threads, shared resources, and cancelling: what to know
+
+These come from running stagepipe on a real five-stage document pipeline.
+
+- **Threads only help when the work releases the GIL** (I/O, onnxruntime, PyTorch). One trap that
+  was measured: PyTorch's CPU thread count is global to the process, so several threads each
+  running a CPU model share a single thread pool. For CPU-bound PyTorch, separate processes
+  scaled better (1.7x in that test). For a GPU, use a stage with one worker.
+- **A resource that is not thread-safe** (a PDF library, a database handle) goes behind a lock
+  inside the stage function, or in a stage with `workers=1`.
+- **One model or session per worker thread.** Until `Stage(init=...)` exists (see the roadmap),
+  build it lazily in the stage function with `threading.local()`:
+
+  ```python
+  import threading
+  _mine = threading.local()
+
+  def ocr(page, i):
+      if not hasattr(_mine, "session"):
+          _mine.session = load_model()      # once per worker thread
+      return _mine.session.read(page)
+  ```
+- **Cancel, then resume.** When a run is cancelled or fails, items that were in flight are
+  dropped, not committed. So let the last stage save each item atomically (write to a temporary
+  file, then rename), and on the next run skip the items already saved. That makes a cancelled
+  run safe to restart.
+- **`on_done` runs in a worker thread**, not in the thread that called `run()`. See the table above.
 
 ### What it is not
 
@@ -195,6 +223,8 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 
 **Alpha, version 0.0.1.** It was extracted from a working document-processing pipeline where it
 replaces a hand-rolled look-ahead loop, and it passes its stress suite on CPython 3.12 and 3.15.
+In its first real use, five stages with different worker counts and at most 8 items in flight
+gave output identical to the sequential loop, and cancelling then resuming worked.
 
 Things this first version does **not** do well yet. They are tracked as
 [issues](https://github.com/rafaelborja/stagepipe/issues) and are the first things on the roadmap:
@@ -235,8 +265,12 @@ do not cover and that the older thread-based libraries have left behind.
   - workers let go of the last item they handled as soon as they are idle;
   - optional smaller thread stacks for very small containers.
 - [ ] Failure policy per run: `collect` failed items and finish the rest, `skip`, or `retry(n, backoff)`.
-- [ ] Per-worker setup: `Stage(init=...)`, e.g. one model session per worker.
-- [ ] A bottleneck report after every run: which stage was busy, which waited, what to scale.
+- [ ] Per-worker setup: `Stage(init=...)`, run once in each worker thread, e.g. one model
+      session per worker. *Asked for by the first real user, who had to build it by hand with
+      `threading.local()`.*
+- [ ] A bottleneck report after every run: per stage, busy time against waiting time, items
+      done and queue depth, so the stage to scale is obvious. *Also asked for by the first real
+      user, who timed inside their stage functions.*
 
 ### Then: make it safe to rerun and easy to watch (0.2)
 - [ ] **Resume after a crash**, with the lightest possible persistence: one small file per item
@@ -250,7 +284,9 @@ do not cover and that the older thread-based libraries have left behind.
 
 ### Later: bigger shapes (0.3 and beyond)
 - [ ] One-to-many stages (a page becomes several regions) and parallel branches that join again.
-- [ ] Process-backed stages for CPU-bound Python, with workers recycled after N items to contain leaks.
+- [ ] Process-backed stages for CPU-bound Python, with workers recycled after N items to contain
+      leaks. (Measured in a real pipeline: CPU-bound PyTorch ran 1.7x faster in separate
+      processes than in threads.)
 - [ ] Adaptive concurrency for rate-limited APIs (back off on errors, speed up when healthy).
 - [ ] Mixed sync and async stages.
 - [ ] Verified on free-threaded Python builds.
