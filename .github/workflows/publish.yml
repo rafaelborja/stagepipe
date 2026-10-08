@@ -60,3 +60,29 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  attach-report:
+    # Release events only: attach this release's footprint table to the GitHub release.
+    if: github.event_name == 'release'
+    needs: [ci, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: footprint-*
+          path: reports
+          merge-multiple: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the report and attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python bench/report.py reports/*.json > "footprint-${{ github.event.release.tag_name }}.md"
+          gh release upload "${{ github.event.release.tag_name }}" "footprint-${{ github.event.release.tag_name }}.md" --clobber

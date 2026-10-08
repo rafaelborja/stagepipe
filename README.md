@@ -72,9 +72,10 @@ being loaded. If you already run an event loop it costs you nothing extra. If yo
 memory is tight, a thread-and-queue design is the lighter tool. Reproduce with `bench/memory.py`.
 
 Continuous integration repeats the footprint measurement on Linux, Windows and macOS for every
-Python from 3.10 to 3.14 (see `bench/footprint.py` and the run summaries). Across those 15
-combinations, importing stagepipe cost between 1.6 and 2.6 MB of resident memory and the
-machinery cost between 2 and 17 microseconds per item per stage.
+Python from 3.10 to 3.14, and the full table is published in
+[docs/BENCHMARKS.md](https://github.com/rafaelborja/stagepipe/blob/main/docs/BENCHMARKS.md). Across those 15
+combinations, importing stagepipe cost between 1.6 and 2.6 MB of resident memory, and the
+machinery cost between 2.5 and 9 microseconds per item for a one-stage run (5 to 18 for three).
 
 **Seconds, not nanoseconds.** stagepipe is for pipelines whose steps take milliseconds to minutes
 (an OCR page, an API call, a transcode), where running in parallel saves *seconds*. Ten
