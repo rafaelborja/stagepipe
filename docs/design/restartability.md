@@ -1,6 +1,7 @@
 # Restartability: retry and resume
 
-Status: **proposed**. Nothing here is built. It waits for the maintainer's decision on the points in
+Status: **proposed**, and partly superseded by [architecture.md](architecture.md) (per-stage resume,
+graceful stop, effect classes). Nothing here is built. It waits for the maintainer's decision on the points in
 "Decisions needed". Related issues: #3 (retry), #9 (checkpoint), #11 (30 s abort wait), #6
 (limiter). Source: the maintainer's concern, reviewed independently by a design agent.
 

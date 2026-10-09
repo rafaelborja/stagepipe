@@ -62,8 +62,14 @@ design, so a whole-architecture review was requested; its result will be recorde
 
 ## Proposed (waiting for the maintainer)
 
-- Contract by boundary, retry per stage, checkpoint final result with a required key, at-least-once
-  semantics. Full text and the four decisions needed: [restartability.md](restartability.md).
+- **The architecture proposal** ([architecture.md](architecture.md)): one `Stage` class with `save=` and
+  `effect=` keywords (not a class per kind), durable versus memory-only boundaries, resume from the last
+  saved boundary, `stop=Event` with `grace=` and draining semantics, effect classes
+  (pure / idempotent / once), and phases 0.1.2 (stop and grace), 0.2 (retry, save, checkpoint), 0.3
+  (`once` effects). Five decisions needed, listed at the end of that note.
+- Retry as a per-stage setting (`Stage(retries=, backoff=, retry_on=)`), in place, no serialization,
+  interruptible wait; at-least-once semantics for checkpoints. Details:
+  [restartability.md](restartability.md).
 
 ## Open
 
