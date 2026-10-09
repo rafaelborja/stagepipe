@@ -24,6 +24,12 @@ Issue numbers refer to https://github.com/rafaelborja/stagepipe/issues.
 
 | 2026-10-09 | **Resume rule:** a restarted run continues each item from its last saved boundary; the failed or interrupted stage is re-run from its saved input. No promise to resume inside a running stage. | [stage-classes](stage-classes.md) |
 | 2026-10-09 | **Custom recovery (R6):** a stage may supply recovery logic (a function, a lambda is enough) that decides on a restarted run whether the work is already done (Skip), must be redone (Rerun) or needs a human (Fail). It lifts the ban on retrying or re-running destructive stages: the library requires the logic instead of forbidding the stage, and checks that it is present when the stage is created. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **Stage kinds are classes**: a base Stage (undeclared, today behaviour, no retries or checkpoint) with a subclass per kind and the behaviour (retry, resume, stop, validate) on the classes. The cost is a few extra public names, nothing per item. Names of the kinds still open. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | A destructive-kind stage may be re-run or retried **only if recovery logic is provided**; without it the stage is refused when it is created. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **A graceful stop returns normally** with UNFINISHED for every dropped item (not an exception) and sets stats.stopped. Cancel and Ctrl-C still raise. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **Drain control**: drain=None (automatic, default), True (finish everything in flight) or False (drop everything not running). | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **Cut from the roadmap**: adaptive concurrency, mixed sync and async stages, memory budget in bytes. | roadmap |
+| 2026-10-09 | A validation tool (stagepipe.validate() and a command line check) is a later feature request: issue #13. | #13 |
 
 ## Shipped
 
@@ -61,6 +67,7 @@ design, so a whole-architecture review was requested; its result will be recorde
   done marker first, and "already deleted" counts as success for an idempotent delete.
   A stage needs a cheap way to declare its class, with a safe default when it does not.
 - **R6. Custom resume and recovery logic.** The user can supply it (a lambda is enough); it can bypass the restriction on destructive stages by requiring that logic instead of forbidding the stage, and it is verified when the stage is created. A validation operation or command line check is a feature request.
+- **R7. An optional error handler for each stage** (a default one that only logs was suggested). Design in the guide: on_error= per stage, run-wide default stays raise, plus a ready-made log handler; whether stages without a handler should log and carry on by default is decision 10.
 - **R5. Always light on memory.** Every one of the above must keep memory independent of the number
   of items.
 
@@ -77,7 +84,7 @@ design, so a whole-architecture review was requested; its result will be recorde
 
 ## Open
 
-- **Decisions waiting on the review guide** ([stage-classes.md](stage-classes.md), section 5): class per kind or keywords, stop result, drain control, undeclared stages, release order, cuts, validation tool.
+- **Decisions waiting on the review guide** ([stage-classes.md](stage-classes.md), section 5): names of the kinds (decision 9: Repeatable / Scratch / Effect / Irreversible recommended), per-stage error handler default (10), the remaining details of custom recovery (2), undeclared stages (5), release order (6).
 
 - **Reconcile the two architecture reports** ([architecture.md](architecture.md), addendum): effect vocabulary (pure / scratch / target / destructive), when an undeclared stage is refused, whether a stop raises Stopped or returns normally, drain= control, and whether persistence is 0.2 or 0.3.
 

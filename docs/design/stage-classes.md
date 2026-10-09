@@ -11,17 +11,55 @@ library only, no database, today's behaviour unchanged unless you opt in
 
 ## What you decided so far
 
-| # | Decision | Status |
-|---|---|---|
-| Contract | Contract by boundary (retry needs no serialization; resume needs a key and a serializable stored value; process stages need picklable values) | **agreed** |
-| Resume | Resume means "re-run the failed stage from its last saved boundary" (not inside a running stage) | **agreed** |
-| Custom recovery | The user can supply custom resume and recovery logic (a lambda is enough). It also lifts the ban on retrying or re-running a destructive stage: the library then requires that logic instead of forbidding the stage. Checked when the stage is created. A validation operation or CLI is a feature request. | **agreed, details below** |
-| Key and attempt | Stage functions can reach their item's key and attempt number | **agreed** (mechanism: `stagepipe.current()`) |
-| Stage classes | One class with keywords, or a class per kind with behaviour on the classes | **needs your decision (section 1)** |
+| #               | Decision                                                                                                                                                                                                                                                                                                     | Status                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| Contract        | Contract by boundary (retry needs no serialization; resume needs a key and a serializable stored value; process stages need picklable values)                                                                                                                                                                | **agreed**                                    |
+| Resume          | Resume means "re-run the failed stage from its last saved boundary" (not inside a running stage)                                                                                                                                                                                                             | **agreed**                                    |
+| Custom recovery | The user can supply custom resume and recovery logic (a lambda is enough). It also lifts the ban on retrying or re-running a destructive stage: the library then requires that logic instead of forbidding the stage. Checked when the stage is created. A validation operation or CLI is a feature request. | **agreed, details below**                     |
+| Key and attempt | Stage functions can reach their item's key and attempt number                                                                                                                                                                                                                                                | **agreed** (mechanism: `stagepipe.current()`) |
+| Stage classes | **Decided: Option B**, a base class and a subclass per kind with the behaviour on the classes. The names of the kinds are still open (decision 9). | **decided** |
 
 ---
 
 ## 1. Decision 1: one class with keywords, or a class per kind?
+
+<< whast the difference between Pure and Target?  really dont like the names . For the destructive (lets chnge that name) we only allow it to be rerun if a recovery/resume logic is proviced. The cost of clsses shouldn be tht high >>
+
+> **Answer to the comment above**
+>
+> **The difference between Pure and Target is whether the stage changes anything outside the pipeline.**
+>
+> | Kind (current name) | What it does | Example | What the library may do |
+> |---|---|---|---|
+> | Pure | Only computes a value and passes it on. Running it twice changes nothing in the world. | read a file, parse, OCR, ask a model | retry, redo and drop it freely |
+> | Scratch | Writes only the pipeline's own working files. Same freedom as Pure. | convert into a temporary file | redo freely; clean the files up |
+> | Target | Changes something other people or systems can see. Running it twice may do the visible thing twice. | write the final output file, upload, update a database, send a message | repeat only if you promise it is safe (idempotent) or supply recovery logic |
+> | Destructive | Deletes, moves or overwrites a source, or does something that cannot be undone. | delete the original, send a letter, charge a card | never repeat on its own; repeat only through your recovery logic |
+>
+> So Pure versus Target asks "does it touch the outside world?", and Target versus Destructive asks
+> "can its effect be repeated or undone harmlessly?".
+>
+> **Names.** Agreed: Pure, Target and Destructive describe my reasoning more than what a user sees. Three
+> candidate sets, in plain words:
+>
+> | Current | Set 1: by "safe to repeat?" | Set 2: by what it does | Set 3: short |
+> |---|---|---|---|
+> | Pure | `Repeatable` | `Compute` | `Safe` |
+> | Scratch | `Scratch` | `Scratch` | `Scratch` |
+> | Target | `Effect` | `Write` | `Careful` |
+> | Destructive | `Irreversible` | `Remove` | `Once` |
+>
+> Set 1 names the thing that drives the behaviour (may the library repeat it or not), so the name
+> already tells the reader what to expect. Set 2 reads naturally but is not accurate: an upload or a
+> message is not a "Write" to a file, and sending a letter is not a "Remove". Set 3 is short but vague.
+> My recommendation is **Set 1**; `Output` would be an alternative to `Effect`. This is new decision 9
+> below.
+>
+> **Destructive stages.** Agreed, and already the proposal: such a stage may be re-run only if recovery
+> logic is provided. Without it the stage is refused when it is created (section 2).
+>
+> **The cost of classes.** Agreed, I overstated it. It is four extra names to learn; there is no memory
+> cost and no cost per item.
 
 You asked how the classes would look if behaviour lives on the classes themselves. This is the
 picture. **Option A** keeps one `Stage` and a keyword `effect=`; **Option B** makes the kinds
@@ -99,21 +137,21 @@ possible and is not promised.
 that reaches this stage and has a trace of an earlier attempt (a marker, or a saved output). It returns
 one of three decisions:
 
-| Return | Meaning |
-|---|---|
-| `Skip(value)` | The work is already done. Pass `value` (default `None`) to the next stage. |
-| `Rerun()` | Run the stage again. |
-| `Fail(reason)` | Do not decide automatically; the item becomes a `Failed` for a human. |
+| Return         | Meaning                                                                    |
+| -------------- | -------------------------------------------------------------------------- |
+| `Skip(value)`  | The work is already done. Pass `value` (default `None`) to the next stage. |
+| `Rerun()`      | Run the stage again.                                                       |
+| `Fail(reason)` | Do not decide automatically; the item becomes a `Failed` for a human.      |
 
 The function receives a small context object:
 
-| Field | What it is |
-|---|---|
-| `ctx.key`, `ctx.index` | The item's stable key and its position |
-| `ctx.value` | The stage's **input** (so a delete stage can see which file it was about to delete) |
-| `ctx.began`, `ctx.finished` | Whether this stage's start marker and done marker exist |
-| `ctx.saved` | The saved output of this stage, if any |
-| `ctx.attempt` | How many attempts happened in the previous run (if known) |
+| Field                       | What it is                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| `ctx.key`, `ctx.index`      | The item's stable key and its position                                              |
+| `ctx.value`                 | The stage's **input** (so a delete stage can see which file it was about to delete) |
+| `ctx.began`, `ctx.finished` | Whether this stage's start marker and done marker exist                             |
+| `ctx.saved`                 | The saved output of this stage, if any                                              |
+| `ctx.attempt`               | How many attempts happened in the previous run (if known)                           |
 
 Examples:
 
@@ -143,18 +181,43 @@ the check that makes a repeat safe:
 - It may follow an unsaved stage: the position rule (see below) is relaxed because `ctx.value` is then
   documented as possibly missing and the user takes responsibility.
 
+### An error handler for every stage (your addition)
+
+Today `on_error` is one setting for the whole run. Proposal: each stage may have its own,
+
+```python
+Stage("ocr", read_page, on_error="log")                                 # log it, keep the item as Failed, carry on
+Target("upload", upload, on_error=lambda stage, i, value, exc: None)    # or your own function
+run(items, stages, on_error="raise")                                    # the run-wide default, as today
+```
+
+- Same forms as today: `"raise"`, `"collect"`, or a function `fn(stage, index, value, exc)` that returns
+  the value to continue with, or raises to stop the run.
+- A stage without its own handler uses the run's `on_error`. The run's default stays **`"raise"`** (the
+  first error stops the run), so nothing changes unless you opt in.
+- A ready-made **`"log"`** handler writes one line (stage, index, exception type and message) and keeps the
+  item as a `Failed`. It writes to the error stream directly, so it imports nothing: the `logging` module
+  is used only if you pass your own handler that uses it.
+- Retries run **before** the handler: the handler sees an error only after the retries (and any recovery
+  logic) have given up.
+
+Your note said "a default one that only logs". If you mean that stages without a handler should log and
+carry on by default, that changes today's behaviour (now one failure stops the run), which breaks the
+rule that defaults never change. My recommendation is to keep `"raise"` as the default and offer `"log"`
+as the one-word opt-in. This is new decision 10 below.
+
 ### When the problems are reported: at creation, not in the middle of a run
 
 Errors are raised as `ValueError` with a message that says how to fix it:
 
-| Where | Checked | Example message |
-|---|---|---|
-| Creating a stage | always | `Destructive stage 'delete_source' needs recover=; a blind repeat could delete twice` |
-| Creating a stage | always | `Target stage 'upload' has retries=3 but is not idempotent; pass idempotent=True or recover=` |
-| Creating a stage | always | `Stage 'x' uses retries=; declare what it does (Pure, Target, ...)` |
-| `run()` start | only when `checkpoint=` is on | `stage 'delete_source' must be first or follow a stage with save=True (its input is lost on restart), or define recover=` |
-| `run()` start | only when `checkpoint=` is on | `key= is required with checkpoint=` |
-| First checkpoint write | on first use | `result of stage 'ocr' for key 'p-17' cannot be serialized: ...` |
+| Where                  | Checked                       | Example message                                                                                                           |
+| ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Creating a stage       | always                        | `Destructive stage 'delete_source' needs recover=; a blind repeat could delete twice`                                     |
+| Creating a stage       | always                        | `Target stage 'upload' has retries=3 but is not idempotent; pass idempotent=True or recover=`                             |
+| Creating a stage       | always                        | `Stage 'x' uses retries=; declare what it does (Pure, Target, ...)`                                                       |
+| `run()` start          | only when `checkpoint=` is on | `stage 'delete_source' must be first or follow a stage with save=True (its input is lost on restart), or define recover=` |
+| `run()` start          | only when `checkpoint=` is on | `key= is required with checkpoint=`                                                                                       |
+| First checkpoint write | on first use                  | `result of stage 'ocr' for key 'p-17' cannot be serialized: ...`                                                          |
 
 ### Feature request: a way to check a pipeline without running it
 
@@ -196,28 +259,43 @@ drain=None, abort_wait=30.0)`. The library never installs signal handlers.
 - A call that is already running always finishes. Dropped items write nothing and are counted as settled
   so the run cannot hang.
 - An ordered stage processes only the contiguous prefix it already has.
-- The result **raises `Stopped`**, or with `partial=True` returns the results with `UNFINISHED`, exactly
-  like a cancel (recommended). The alternative is to return normally.
+- **Your decision:** the call **returns normally**, with `UNFINISHED` in place of every item that was
+  dropped. A stop is a requested outcome, not an error. `stats.stopped` is set so a caller can tell a
+  stop from a complete run (it is also the only signal with `keep_results=False`, where the call
+  returns `None`). Cancel and Ctrl-C still raise.
 
 ---
 
 ## 5. Decisions for you
 
+We also must have an optional error handler for each task (we can have a defautl ony that logs, for example)
+
 Mark your choice and I will record it in [decisions.md](decisions.md) and the issues.
 
-1. **Stage classes.** [ ] Option A, one class with keywords   [ ] **Option B, a base class and a
+1. **Stage classes.** [ ] Option A, one class with keywords   [ X] **Option B, a base class and a
    subclass per kind (recommended)**   [ ] Option B plus a keyword shortcut
 2. **Custom recovery.** Agreed. Confirm the details: [ ] `recover=` returns `Skip(value)` / `Rerun()` /
-   `Fail(reason)` and gets the context above   [ ] it relaxes the rules for destructive stages as
+   `Fail(reason)` and gets the context above   [ X ] it relaxes the rules for destructive stages as
    described   [ ] errors are raised when the stage is created
 3. **Stop result.** [ ] **Raise `Stopped`, or return partial results with `partial=True` (recommended)**
-   [ ] Return normally with `UNFINISHED`
-4. **Drain control.** [ ] **`drain=None/True/False`, automatic by default (recommended)**   [ ] Only
+   [ X] Return normally with `UNFINISHED`
+4. **Drain control.** [X ] **`drain=None/True/False`, automatic by default (recommended)**   [ ] Only
    automatic
 5. **Undeclared stages.** [ ] **A plain `Stage` refuses `retries=` and `checkpoint=` but is fine with
    `stop=` (recommended)**   [ ] Refuse all three
 6. **Release order.** [ ] 0.1.2 `close`, `abort_wait`, `current()` then 0.2 kinds, retries, stop, limiter
    then 0.3 checkpoint (recommended by the second review)   [ ] 0.2 includes a last-stage-only checkpoint
-7. **Cuts.** [ ] Cut adaptive concurrency, mixed sync and async stages, and the in-bytes memory budget
+7. **Cuts.** [ x] Cut adaptive concurrency, mixed sync and async stages, and the in-bytes memory budget
    from the roadmap
-8. **Validation tool.** [ ] Open an issue for `stagepipe.validate()` and a command line check (later)
+8. **Validation tool.** [x ] Open an issue for `stagepipe.validate()` and a command line check (later)
+   (the issue exists: #13)
+9. **Names of the kinds** (see the answer in section 1). [ ] **Set 1: `Repeatable` / `Scratch` /
+   `Effect` / `Irreversible` (recommended)**   [ ] Set 2: `Compute` / `Scratch` / `Write` / `Remove`
+   [ ] Set 3: `Safe` / `Scratch` / `Careful` / `Once`   [ ] Other: ______
+10. **Per-stage error handler.** [ ] **`on_error=` on each stage, run-wide default stays `"raise"`, plus a
+    ready-made `"log"` (recommended)**   [ ] Stages without a handler log and carry on by default (changes
+    today's behaviour)
+
+Still open from your list: decision 2 (the other two details were not ticked: the `Skip` / `Rerun` /
+`Fail` shape of `recover=`, and errors raised when the stage is created; the second was agreed earlier in
+conversation), decision 5 (undeclared stages) and decision 6 (release order).
