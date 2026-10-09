@@ -30,6 +30,9 @@ Issue numbers refer to https://github.com/rafaelborja/stagepipe/issues.
 | 2026-10-09 | **Drain control**: drain=None (automatic, default), True (finish everything in flight) or False (drop everything not running). | [stage-classes](stage-classes.md) |
 | 2026-10-09 | **Cut from the roadmap**: adaptive concurrency, mixed sync and async stages, memory budget in bytes. | roadmap |
 | 2026-10-09 | A validation tool (stagepipe.validate() and a command line check) is a later feature request: issue #13. | #13 |
+| 2026-10-09 | **Undeclared stages:** a plain Stage refuses retries= and checkpoint= (declare a kind first) but is fine with stop=. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **Release order:** 0.1.2 = close, abort_wait and stragglers (#11), stagepipe.current(); 0.2 = kinds, retries, stop and drain, limiter (no disk); 0.3 = checkpoint with per-stage layout. Persistence therefore moves from 0.2 to 0.3. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **Per-stage error handler:** on_error= on each stage; the run-wide default stays raise; a ready-made log handler is the one-word opt-in. Retries run before the handler. | [stage-classes](stage-classes.md) |
 
 ## Shipped
 
@@ -84,7 +87,7 @@ design, so a whole-architecture review was requested; its result will be recorde
 
 ## Open
 
-- **Decisions waiting on the review guide** ([stage-classes.md](stage-classes.md), section 5): names of the kinds (decision 9: Repeatable / Scratch / Effect / Irreversible recommended), per-stage error handler default (10), the remaining details of custom recovery (2), undeclared stages (5), release order (6).
+- **Decisions waiting on the review guide** ([stage-classes.md](stage-classes.md), section 5): the names of the kinds (decision 9, round 2: Idempotent / Scratch / AtMostOnce recommended), whether to merge the non-idempotent Target kind and the Destructive kind into one run-once kind (decision 11, recommended: yes), and two details of custom recovery (the Skip / Rerun / Fail shape of recover=, errors raised at creation).
 
 - **Reconcile the two architecture reports** ([architecture.md](architecture.md), addendum): effect vocabulary (pure / scratch / target / destructive), when an undeclared stage is refused, whether a stop raises Stopped or returns normally, drain= control, and whether persistence is 0.2 or 0.3.
 

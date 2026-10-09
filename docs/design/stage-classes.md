@@ -17,7 +17,7 @@ library only, no database, today's behaviour unchanged unless you opt in
 | Resume          | Resume means "re-run the failed stage from its last saved boundary" (not inside a running stage)                                                                                                                                                                                                             | **agreed**                                    |
 | Custom recovery | The user can supply custom resume and recovery logic (a lambda is enough). It also lifts the ban on retrying or re-running a destructive stage: the library then requires that logic instead of forbidding the stage. Checked when the stage is created. A validation operation or CLI is a feature request. | **agreed, details below**                     |
 | Key and attempt | Stage functions can reach their item's key and attempt number                                                                                                                                                                                                                                                | **agreed** (mechanism: `stagepipe.current()`) |
-| Stage classes | **Decided: Option B**, a base class and a subclass per kind with the behaviour on the classes. The names of the kinds are still open (decision 9). | **decided** |
+| Stage classes   | **Decided: Option B**, a base class and a subclass per kind with the behaviour on the classes. The names of the kinds are still open (decision 9).                                                                                                                                                           | **decided**                                   |
 
 ---
 
@@ -29,12 +29,12 @@ library only, no database, today's behaviour unchanged unless you opt in
 >
 > **The difference between Pure and Target is whether the stage changes anything outside the pipeline.**
 >
-> | Kind (current name) | What it does | Example | What the library may do |
-> |---|---|---|---|
-> | Pure | Only computes a value and passes it on. Running it twice changes nothing in the world. | read a file, parse, OCR, ask a model | retry, redo and drop it freely |
-> | Scratch | Writes only the pipeline's own working files. Same freedom as Pure. | convert into a temporary file | redo freely; clean the files up |
-> | Target | Changes something other people or systems can see. Running it twice may do the visible thing twice. | write the final output file, upload, update a database, send a message | repeat only if you promise it is safe (idempotent) or supply recovery logic |
-> | Destructive | Deletes, moves or overwrites a source, or does something that cannot be undone. | delete the original, send a letter, charge a card | never repeat on its own; repeat only through your recovery logic |
+> | Kind (current name) | What it does                                                                                        | Example                                                                | What the library may do                                                     |
+> | ------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+> | Pure                | Only computes a value and passes it on. Running it twice changes nothing in the world.              | read a file, parse, OCR, ask a model                                   | retry, redo and drop it freely                                              |
+> | Scratch             | Writes only the pipeline's own working files. Same freedom as Pure.                                 | convert into a temporary file                                          | redo freely; clean the files up                                             |
+> | Target              | Changes something other people or systems can see. Running it twice may do the visible thing twice. | write the final output file, upload, update a database, send a message | repeat only if you promise it is safe (idempotent) or supply recovery logic |
+> | Destructive         | Deletes, moves or overwrites a source, or does something that cannot be undone.                     | delete the original, send a letter, charge a card                      | never repeat on its own; repeat only through your recovery logic            |
 >
 > So Pure versus Target asks "does it touch the outside world?", and Target versus Destructive asks
 > "can its effect be repeated or undone harmlessly?".
@@ -42,12 +42,12 @@ library only, no database, today's behaviour unchanged unless you opt in
 > **Names.** Agreed: Pure, Target and Destructive describe my reasoning more than what a user sees. Three
 > candidate sets, in plain words:
 >
-> | Current | Set 1: by "safe to repeat?" | Set 2: by what it does | Set 3: short |
-> |---|---|---|---|
-> | Pure | `Repeatable` | `Compute` | `Safe` |
-> | Scratch | `Scratch` | `Scratch` | `Scratch` |
-> | Target | `Effect` | `Write` | `Careful` |
-> | Destructive | `Irreversible` | `Remove` | `Once` |
+> | Current     | Set 1: by "safe to repeat?" | Set 2: by what it does | Set 3: short |
+> | ----------- | --------------------------- | ---------------------- | ------------ |
+> | Pure        | `Repeatable`                | `Compute`              | `Safe`       |
+> | Scratch     | `Scratch`                   | `Scratch`              | `Scratch`    |
+> | Target      | `Effect`                    | `Write`                | `Careful`    |
+> | Destructive | `Irreversible`              | `Remove`               | `Once`       |
 >
 > Set 1 names the thing that drives the behaviour (may the library repeat it or not), so the name
 > already tells the reader what to expect. Set 2 reads naturally but is not accurate: an upload or a
@@ -281,21 +281,76 @@ Mark your choice and I will record it in [decisions.md](decisions.md) and the is
    [ X] Return normally with `UNFINISHED`
 4. **Drain control.** [X ] **`drain=None/True/False`, automatic by default (recommended)**   [ ] Only
    automatic
-5. **Undeclared stages.** [ ] **A plain `Stage` refuses `retries=` and `checkpoint=` but is fine with
+5. **Undeclared stages.** [ x] **A plain `Stage` refuses `retries=` and `checkpoint=` but is fine with
    `stop=` (recommended)**   [ ] Refuse all three
-6. **Release order.** [ ] 0.1.2 `close`, `abort_wait`, `current()` then 0.2 kinds, retries, stop, limiter
+6. **Release order.** [x ] 0.1.2 `close`, `abort_wait`, `current()` then 0.2 kinds, retries, stop, limiter
    then 0.3 checkpoint (recommended by the second review)   [ ] 0.2 includes a last-stage-only checkpoint
 7. **Cuts.** [ x] Cut adaptive concurrency, mixed sync and async stages, and the in-bytes memory budget
    from the roadmap
 8. **Validation tool.** [x ] Open an issue for `stagepipe.validate()` and a command line check (later)
    (the issue exists: #13)
 9. **Names of the kinds** (see the answer in section 1). [ ] **Set 1: `Repeatable` / `Scratch` /
-   `Effect` / `Irreversible` (recommended)**   [ ] Set 2: `Compute` / `Scratch` / `Write` / `Remove`
-   [ ] Set 3: `Safe` / `Scratch` / `Careful` / `Once`   [ ] Other: ______
-10. **Per-stage error handler.** [ ] **`on_error=` on each stage, run-wide default stays `"raise"`, plus a
-    ready-made `"log"` (recommended)**   [ ] Stages without a handler log and carry on by default (changes
+   `Effect` / `Irreversible` (recommended)**   [ ] Set 2: `ComputeOnly` / `Scratch` / `Write` / `Remove`
+   [ ] Set 3: `Safe` / `Scratch` / `Careful` / `Once`   [ x] Other: I still dont like the name Ho about more math related name? (idenpontent, etc? what about datbase like names)
+10. **Per-stage error handler.** [X ] **`on_error=` on each stage, run-wide default stays `"raise"`, plus a
+    ready-made `"log"` (recommended)**    [ ] Stages without a handler log and carry on by default (changes
     today's behaviour)
 
-Still open from your list: decision 2 (the other two details were not ticked: the `Skip` / `Rerun` /
+**Status after your second pass:** decisions 5, 6 and 10 are decided as recommended (a plain `Stage`
+refuses `retries=` and `checkpoint=` but is fine with `stop=`; release order 0.1.2, then 0.2, then 0.3;
+`on_error=` per stage with `"raise"` as the run default plus a ready-made `"log"`). Still open: the names
+(decision 9, round 2 below) and two details of decision 2 that were not ticked (the `Skip` / `Rerun` /
 `Fail` shape of `recover=`, and errors raised when the stage is created; the second was agreed earlier in
-conversation), decision 5 (undeclared stages) and decision 6 (release order).
+conversation).
+
+> **Answer to decision 9, round 2: math and database names, and a simplification that follows from them**
+>
+> Your request for math or database vocabulary points at the standard terms for exactly what the library
+> cares about: **may this be run more than once?** That vocabulary is *idempotent* (math, databases) and
+> *at-most-once* / *at-least-once* (messaging and databases).
+>
+> **A simplification I found while answering.** Check the matrix again: a *Target* stage that is not
+> idempotent and a *Destructive* stage behave **identically** in every cell: never retried on its own,
+> markers `.start` and `.done`, finishes its call at a stop, repeated only through your recovery logic.
+> The only difference was the label. And an idempotent *Target* (an atomic write, an upsert) is just a
+> repeat-safe stage. So the real kinds are not four, they are **two, plus the working-file variant**:
+>
+> | Kind | Meaning | What the library does |
+> |---|---|---|
+> | **repeat-safe** (covers old Pure, idempotent Target) | Running it again gives the same result: reading, parsing, OCR, an atomic write, an upsert | retry, redo and drop freely |
+> | **Scratch** (a repeat-safe kind) | Same, and it writes working files | same, plus a per-item scratch path and cleanup |
+> | **run-once** (covers old non-idempotent Target and Destructive) | Running it twice could do the effect twice: delete, send, bill, append | never repeated on its own; markers; repeated only through your `recover=` logic |
+>
+> The `idempotent=True` keyword then disappears: an idempotent write simply uses the repeat-safe kind.
+> One fewer class and one fewer parameter, and no behaviour is lost. If you would still like a separate
+> label for "visible output" versus "destructive" for documentation, that can be a name only.
+>
+> **Name sets** (the first two use the vocabulary you suggested):
+>
+> | Kind | Set 4: math and messaging | Set 5: database style (query/command) | Set 1 (old suggestion) |
+> |---|---|---|---|
+> | repeat-safe | `Idempotent` | `Query` | `Repeatable` |
+> | working files | `Scratch` | `Scratch` | `Scratch` |
+> | run-once | `AtMostOnce` | `Command` | `Irreversible` |
+>
+> ```python
+> run(items, [
+>     Idempotent("read", read_file, workers=4),                          # safe to repeat
+>     Scratch("convert", convert, workers=3),                           # working files
+>     Idempotent("upload", upload, retries=3),                          # an atomic upsert: repeat-safe
+>     AtMostOnce("delete_source", delete,                               # never repeated without your logic
+>                recover=lambda ctx: Skip() if not os.path.exists(ctx.value) else Rerun()),
+> ], checkpoint="work/", key=lambda it: it.id)
+> ```
+>
+> **My recommendation: Set 4.** `Idempotent` is the exact technical word for "the library may run this
+> again", and `AtMostOnce` is the exact word for "the library will not run this twice on its own", so the
+> names state the promise instead of my reasoning. Set 5 reads well and is familiar, but `Query` and
+> `Command` suggest a database, which many users are not using. A plain `Stage` stays the undeclared
+> default. If you accept the simplification, the diagrams and the matrix will be regenerated with the two
+> kinds plus `Scratch`.
+>
+> **New decision 11:** merge Target and Destructive into one run-once kind. [ ] **Yes, merge
+> (recommended)**   [ ] No, keep four kinds.
+> **Decision 9, round 2:** [ ] **Set 4: `Idempotent` / `Scratch` / `AtMostOnce` (recommended)**
+> [ ] Set 5: `Query` / `Scratch` / `Command`   [ ] Other: ______
