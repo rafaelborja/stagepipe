@@ -73,6 +73,8 @@ design, so a whole-architecture review was requested; its result will be recorde
 
 ## Open
 
+- **Reconcile the two architecture reports** ([architecture.md](architecture.md), addendum): effect vocabulary (pure / scratch / target / destructive), when an undeclared stage is refused, whether a stop raises Stopped or returns normally, drain= control, and whether persistence is 0.2 or 0.3.
+
 - How a restored item is marked: a flag on the result, or an `on_restored` callback.
 - Key and attempt access for stage functions: `stagepipe.current()` or an opt-in argument.
 - `fingerprint(item)` to detect a stale checkpoint after the input changed.

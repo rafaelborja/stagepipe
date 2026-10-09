@@ -201,9 +201,116 @@ Proposed phases:
 - `for value in items` blocks inside the input generator, so neither stop nor cancel can interrupt it.
 - `partial` handles only `Cancelled`; a stop should reuse the same return path.
 
+## Addendum: second report of the same reviewer (after the working-file refinement)
+
+The reviewer was given the maintainer's extra point (writing a *working* file differs from writing a
+*target* file and from deleting one) and produced a revised report. It keeps the core idea (one
+`Stage` class, boundaries durable or memory-only, resume from the last saved boundary) and **changes
+the details below**. Where the two reports differ, this addendum is the more recent.
+
+### Effect vocabulary now matches the maintainer's four classes
+
+```python
+Stage(name, fn, workers=1, ordered=False, init=None, close=None,
+      effect=None,            # "pure" | "scratch" | "target" | "destructive"
+      save=False,             # persist this stage's output (needs checkpoint=)
+      retries=0, backoff=0.5, retry_on=(Exception,),
+      idempotent=False,       # target only: the user asserts the write is safe to repeat
+      done=None)              # destructive/target: done(value, ctx) -> bool precondition check
+```
+
+| Class | Retry | Re-run on resume | Skip on resume | Drop at stop | Library owns |
+|---|---|---|---|---|---|
+| pure | yes | yes | if output saved | yes | nothing |
+| scratch (working files) | yes (overwrite) | yes | if output saved | yes | a per-item scratch path and its cleanup |
+| target, `idempotent=True` | yes | yes | if output saved | yes | nothing |
+| target, otherwise | no | only after a done-marker check | if a done marker exists | no, finish it | a `.done` marker written after the call returns |
+| destructive | never | never blindly | if a done marker exists or `done()` says so | no, finish it | a `.start` marker before and a `.done` marker after |
+
+For destructive stages a `.start` without a `.done` means the outcome is unknown: the library calls
+`done(value, ctx)` if given (true = skip as success, false = run); with no `done` the item becomes
+`Failed` (indeterminate) and is not re-run. "Already deleted counts as success" is written by the user
+in `done` or inside the function; the library does not swallow `FileNotFoundError`. There is always a
+window between the effect and the marker, so the guarantee is at-least-once unless `done` is supplied.
+No class per kind, no decorator form, no compensation framework.
+
+### Declaration and default: refuse and ask
+
+- Declare with the `effect=` argument only (a constant per stage, zero cost per item).
+- If `retries`, `checkpoint=` or `stop=` is on and a stage is undeclared, `run()` raises `ValueError`
+  at start naming the stage ("declare effect="). Treating undeclared as pure could double-send
+  messages; treating it as destructive would make every checkpoint run unusable.
+- Validate at start: `retries>0` with `effect="destructive"` is an error; `retries>0` with
+  `effect="target"` and `idempotent=False` is an error.
+- *Note from the reconciliation:* requiring a declaration for `stop=` alone is probably too strict.
+  Without a checkpoint, a stop is just "finish what is in flight, start nothing new" and cannot cause a
+  double effect. Proposal: require the declaration only when `retries` or `checkpoint=` is on.
+
+### Per-stage persistence layout
+
+`dir/<stage>/<key>` (temporary file then `os.replace`), plus `dir/VERSION` and a lock file so two runs
+cannot share a directory. The last stage is saved by default when `checkpoint=` is set. Lookup probes
+saved stages from last to first (at most S stat calls). A rolling cleanup deletes the previous saved
+output for a key when a newer one is written. Markers only for target and destructive stages that do
+not save. Failed and `on_error` substitutes are never saved. Ordered stages get a tombstone `(i, SKIP)`
+for every index an item bypasses.
+
+### Graceful stop, revised
+
+`run(..., stop=event, drain=None, abort_wait=30.0)`:
+
+- `stop` is anything with `is_set()`; the library never installs signal handlers.
+- `drain` is `None` (automatic), `True` (let everything in flight finish) or `False` (drop everything
+  not currently running). This gives both variants the maintainer asked for.
+- Automatic rule, computed once: `hold[k]` is true if some stage `j<=k` is target or destructive and no
+  saved stage lies after it. In words: if a side effect happened and its result exists only in memory,
+  the item keeps going until its data is durable or it leaves the last stage. Everything else is dropped
+  at the next boundary. A call already running always finishes.
+- A worker that dequeues from queue `k` drops the item unless `hold[k-1]` or `drain=True`. Dropped
+  items are not errors and write nothing, but they **must be counted as settled** (release both the
+  `finished` and `slots` accounting).
+- An ordered stage processes only the contiguous prefix it already has and discards its buffer.
+- The result **raises `Stopped`**, or with `partial=True` returns the results with `UNFINISHED`, exactly
+  like cancel. (The first report returned normally; this is the difference to settle, see below.)
+- Cancel, Ctrl-C and errors stay "abort": discard everything now, bounded join.
+
+### Phases, revised (persistence moves later)
+
+- **0.1.2:** release #10 (`close`), `abort_wait` and the straggler report (#11), `stagepipe.current()`
+  (key, index, attempt). Small, low risk.
+- **0.2.0:** `effect=` / `idempotent=`, in-place retries, `stop=` / `drain`, plus `limiter=` (#6).
+  **No disk.** Stop is the riskiest concurrency change and the stress suite can attack it; shipping it
+  before persistence also fixes the vocabulary first.
+- **0.3.0:** checkpoint with the per-stage layout, markers, scratch directory, tombstones. The on-disk
+  format lasts, so it should come after the declarations are settled. This means persistence moves from
+  0.2 (as in the README roadmap) to 0.3. If 0.2 is insisted on, ship `save` on the last stage only, in
+  the per-stage layout, and refuse destructive stages with a checkpoint until markers exist.
+- **Later:** events (folded into `Stats`), process and interpreter stages, replay for ordered stages,
+  streaming iterator (a `break` equals a stop).
+- **Cut from the roadmap:** adaptive concurrency, mixed sync and async stages; the in-bytes memory
+  budget (sizing is unreliable).
+
+### Missing pieces it lists, in addition to the first report
+
+Closing the input iterator on abort (generator resources leak today); a dequeue-time check for stop
+(`cancelled()` is checked only before a stage call); a state machine (running, stopping, aborted)
+instead of one abort event; key and attempt access; the directory lock and version stamp; a cleanup
+option (`keep=`); and a per-item scratch path for `scratch` stages.
+
+### Where the two reports disagree, and the reconciliation
+
+| Topic | First report | Second report | Leaning |
+|---|---|---|---|
+| Effect vocabulary | pure / durable pure / idempotent / once | pure / scratch / target / destructive plus `idempotent=`, `done=` | Second: it matches the maintainer's own classes |
+| Undeclared stage | behaves as today | refuse and ask when retries, checkpoint or stop is on | Refuse and ask, but only for retries or checkpoint |
+| Stop result | returns normally with `UNFINISHED` | raises `Stopped`, or returns partial with `partial=True` | Second: consistent with cancel |
+| Drain control | automatic only | automatic plus `drain=True/False` | Second: the maintainer wants both variants |
+| Persistence release | 0.2 | 0.3 (vocabulary and stop first) | Second, unless the maintainer needs persistence sooner |
+| Directory safety | not mentioned | VERSION stamp and lock file | Second |
+
 ## Decisions needed from the maintainer
 
-1. **One `Stage` class with `save=` and `effect=` keywords** (the reviewer's recommendation), versus a
+1. **One `Stage` class with `save=` and `effect=` keywords** (both reports recommend it), versus a
    separate class per kind as first suggested. A class per kind multiplies the combinations of retry,
    resume and stop; helper constructors (for example `Stage.once(...)`) can be added later as sugar.
 2. Resume means "re-run the failed stage from its last saved boundary", not "resume inside a stage".
