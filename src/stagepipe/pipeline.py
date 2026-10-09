@@ -13,6 +13,10 @@ Slow stages get more workers, fast ones fewer; an item waits only when the next 
   it must have workers=1. Items finishing earlier wait in a small buffer.
 * init=fn: called once in each worker thread; its return value (a model, a session, a client) is
   passed to the stage function as a third argument, fn(value, index, state).
+* close=fn (needs init): close(state) is called once per worker, in the worker thread that created
+  the state, after that worker's last stage call has returned: on a normal finish and also after a
+  stage error, cancel or Ctrl-C. If it raises, other workers still close, the run's own error wins,
+  and otherwise the first close error is raised from run().
 * max_in_flight: at most this many items are between "fed" and "done" at once. It bounds memory
   (page images) and keeps a fast first stage from racing ahead of a slow one. Items are pulled
   from `items` lazily, so a generator is never materialised.
@@ -76,11 +80,11 @@ UNFINISHED = _Unfinished()          # marks items that had not finished when a r
 
 
 class Stage:
-    __slots__ = ("name", "fn", "workers", "ordered", "init")
+    __slots__ = ("name", "fn", "workers", "ordered", "init", "close")
 
     def __init__(self, name: str, fn: Callable[..., Any], workers: int = 1, ordered: bool = False,
-                 init: Callable[[], Any] | None = None) -> None:
-        self.name, self.fn, self.workers, self.ordered, self.init = name, fn, workers, ordered, init
+                 init: Callable[[], Any] | None = None, close: Callable[[Any], Any] | None = None) -> None:
+        self.name, self.fn, self.workers, self.ordered, self.init, self.close = name, fn, workers, ordered, init, close
 
     def __repr__(self) -> str:
         return f"Stage({self.name!r}, workers={self.workers}, ordered={self.ordered})"
@@ -137,6 +141,8 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
     for s in stages:
         if s.ordered and s.workers != 1:
             raise ValueError(f"stage {s.name!r}: ordered needs workers=1")
+        if s.close is not None and s.init is None:
+            raise ValueError(f"stage {s.name!r}: close needs init")
     if on_error is not None and on_error not in ("raise", "collect") and not callable(on_error):
         raise ValueError('on_error must be None, "raise", "collect" or a callable')
     if partial and not keep_results:
@@ -155,6 +161,7 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
     abort = threading.Event()
     finished = threading.Semaphore(0)
     errors: list[BaseException] = []
+    close_errors: list[BaseException] = []
     accs: list[list[list[Any]]] = [[] for _ in stages]  # per stage: one [items, failed, run, wait, maxwait, maxq] per worker
 
     def fail(exc: BaseException) -> None:
@@ -221,38 +228,47 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
         loc: list[Any] = [0, 0, 0.0, 0.0, 0.0, 0]
         accs[k].append(loc)
         state = None
+        ready = stage.init is None                # False only when init failed: then there is nothing to close
         if stage.init is not None:
             try:
                 state = stage.init()              # once per worker thread
+                ready = True
             except BaseException as exc:          # noqa: BLE001
                 fail(exc)
-        got = value = v = None                    # reset every turn: an idle worker must not keep
-        while True:                               # the last item alive
-            got = q.get()
-            if got is _STOP:
-                return
-            if abort.is_set():
+        try:
+            got = value = v = None                    # reset every turn: an idle worker must not keep
+            while True:                               # the last item alive
+                got = q.get()
+                if got is _STOP:
+                    return
+                if abort.is_set():
+                    got = None
+                    continue                          # drain: nothing new starts after a failure
+                i, value, t_enq = got
                 got = None
-                continue                          # drain: nothing new starts after a failure
-            i, value, t_enq = got
-            got = None
-            if stats is not None:
-                depth = q.qsize() + 1
-                if depth > loc[5]:
-                    loc[5] = depth
-            if stage.ordered:
-                buffer[i] = (value, t_enq)
-                value = None
-                while nxt in buffer and not abort.is_set():
-                    j, (v, te) = nxt, buffer.pop(nxt)
-                    nxt += 1
-                    ok = _call(stage, j, v, te, k, state, loc)
-                    v = None
-                    if not ok:
-                        break
-            else:
-                _call(stage, i, value, t_enq, k, state, loc)
-                value = None
+                if stats is not None:
+                    depth = q.qsize() + 1
+                    if depth > loc[5]:
+                        loc[5] = depth
+                if stage.ordered:
+                    buffer[i] = (value, t_enq)
+                    value = None
+                    while nxt in buffer and not abort.is_set():
+                        j, (v, te) = nxt, buffer.pop(nxt)
+                        nxt += 1
+                        ok = _call(stage, j, v, te, k, state, loc)
+                        v = None
+                        if not ok:
+                            break
+                else:
+                    _call(stage, i, value, t_enq, k, state, loc)
+                    value = None
+        finally:
+            if ready and stage.close is not None:
+                try:
+                    stage.close(state)            # in this thread, after its last call has returned
+                except BaseException as exc:      # noqa: BLE001 - other workers must still close
+                    close_errors.append(exc)
 
     threads = [threading.Thread(target=work, args=(k,), daemon=True, name=f"pipe-{s.name}-{w}")
                for k, s in enumerate(stages) for w in range(s.workers)]
@@ -304,6 +320,8 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
         if partial and isinstance(errors[0], Cancelled) and results is not None:
             return [results.get(i, UNFINISHED) for i in range(fed)]
         raise errors[0]
+    if close_errors:
+        raise close_errors[0]
     if results is None:
         return None
     return [results.pop(i) for i in range(fed)]

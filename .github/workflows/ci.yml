@@ -39,6 +39,7 @@ jobs:
           python tests/stress.py
           python tests/memory_test.py
           python tests/features_test.py
+          python tests/close_test.py
       - name: Footprint (memory and time)
         shell: bash
         run: |
