@@ -120,7 +120,18 @@ needed. The layout itself is open; shard folders by key hash only if a flat fold
 13. A changed input between runs with the same key: a stale result; optional `fingerprint`.
 14. Disk full or read-only directory: the run stops with the OS error.
 
-## Decisions needed from the maintainer
+## Update 2026-10-09: maintainer's answers
+
+1. Contract by boundary: **agreed**.
+2. Retry as a per-stage setting: asked for an explanation (a stage-level `retries=` instead of a
+   run-wide `on_error` policy); not yet confirmed.
+3. Checkpoint: the maintainer wants to **resume a single stage that failed or was interrupted**, so
+   "final result only" is not enough; per-stage resume moves from "later" to a requirement (R1 in
+   [decisions.md](decisions.md)). New requirements R2 to R5 (graceful shutdown, stage kinds by
+   nature, effect classes) are also in the decision log. A whole-architecture review is under way.
+4. Key and attempt access for stage functions: **agreed**; mechanism still to choose.
+
+## Decisions needed from the maintainer (original list)
 
 1. Adopt **contract by boundary** (nothing for retry, key plus serializable last result for resume,
    picklable function and values for process/interpreter kinds) instead of "option 1 everywhere"?

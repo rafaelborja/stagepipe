@@ -20,12 +20,37 @@ Issue numbers refer to https://github.com/rafaelborja/stagepipe/issues.
 | 2026-10-09 | One code path for all Python versions, feature detection instead of version checks; free-threaded, interpreter stages and `os.process_cpu_count()` are optional later items. | [principles](principles.md), [execution-models](execution-models.md) |
 | 2026-10-09 | The `pypi` GitHub environment is the only one the PyPI Trusted Publisher accepts. | PyPI settings |
 
+| 2026-10-09 | **Contract by boundary** (not "option 1 everywhere"): retry within a run needs no serialization; resume needs a stable key plus serializable stored data; process/interpreter stages need an importable function and picklable values. | [restartability](restartability.md) |
+| 2026-10-09 | Stage functions must be able to reach their item's key and attempt number (mechanism undecided: `stagepipe.current()` or an opt-in argument). | [restartability](restartability.md) |
+
 ## Shipped
 
 - 0.0.1 to 0.0.3: library, README, CI matrix, footprint report, examples.
 - 0.1.0 (2026-10-09): `on_error`, `Stage(init=)`, `Stats`, `partial=True`, `keep_results=False`, lazy input,
   Ctrl-C fix, light imports. Closed #1, #2, #4, #5, #7.
 - 0.1.1 (merged, **not released**): `Stage(close=)` for `init` state (#10).
+
+## Requirements stated 2026-10-09 (under architecture review)
+
+The maintainer added these on top of the restartability proposal. They change the shape of the
+design, so a whole-architecture review was requested; its result will be recorded here.
+
+- **R1. Resume per stage, not only at the end of the pipeline.** A stage that failed or was
+  interrupted must be resumable on its own; checkpointing only the last stage's result is not
+  enough. (This overrides the earlier "final result only for 0.2, per-stage later" proposal.)
+- **R2. Graceful shutdown.** A way to stop so that no new step or task is started and Python can
+  exit cleanly. The right behaviour depends on the nature of the next step: if the next step depends
+  on data held in memory, shutdown must let that next step finish too (a draining shutdown);
+  otherwise it can stop at the stage boundary without waiting (a non-draining shutdown). Both
+  variants are wanted.
+- **R3. Different stage kinds by nature.** Memory-dependent stages (their input or state lives only
+  in memory) should be a different class or method from stages whose data is on disk or
+  re-creatable. Each kind defines how it is retried, resumed and shut down.
+- **R4. Distinguish operations by effect.** A stage that only reads and produces output (reads a file
+  and passes the result on) behaves differently from a stage with side effects (deletes a file, sends
+  a message, bills an API call) for retry, resume and suspension.
+- **R5. Always light on memory.** Every one of the above must keep memory independent of the number
+  of items.
 
 ## Proposed (waiting for the maintainer)
 
