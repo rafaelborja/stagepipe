@@ -309,14 +309,21 @@ option (`keep=`); and a per-item scratch path for `scratch` stages.
 | Persistence release | 0.2 | 0.3 (vocabulary and stop first) | Second, unless the maintainer needs persistence sooner |
 | Directory safety | not mentioned | VERSION stamp and lock file | Second |
 
-## Decisions needed from the maintainer
+## Decisions
 
-1. **One `Stage` class with `save=` and `effect=` keywords** (both reports recommend it), versus a
-   separate class per kind as first suggested. A class per kind multiplies the combinations of retry,
-   resume and stop; helper constructors (for example `Stage.once(...)`) can be added later as sugar.
-2. Resume means "re-run the failed stage from its last saved boundary", not "resume inside a stage". **Agreed**, with custom recovery logic added (see stage-classes.md).
-3. The stop semantics (rules 1 to 6) and the API `stop=Event`, `grace=`.
-4. The phases: 0.1.2 `close` + stop/grace, 0.2 retry + save + checkpoint, 0.3 `once` effects; limiter
-   and the `3.14t` job any time.
-5. Cut the in-bytes memory budget; make dashboard events a callback shared with `Stats`; fan-out and
-   process stages later.
+No decisions are needed in this note. Everything it proposes is decided in one place, section 5 of
+[stage-classes.md](stage-classes.md). Where each of the five original questions went:
+
+| Original question | Now |
+|---|---|
+| 1. One `Stage` class with keywords, or a class per kind | Review guide, decision 1 (with diagrams and code) |
+| 2. Resume means "re-run the failed stage from its last saved boundary" | **Agreed**, plus custom recovery logic (decision log, R6) |
+| 3. Stop semantics and the `stop=` / `grace=` API | Review guide, decisions 3 and 4 (stop result, drain control) |
+| 4. The release phases | Review guide, decision 6 |
+| 5. The cuts (bytes budget, adaptive concurrency, mixed sync and async) | Review guide, decision 7 |
+
+Points raised by the reconciliation of the two reports that are also in the guide: when an undeclared
+stage is refused (decision 5), and the persistence release (decision 6). The remaining items in this
+note (the directory lock and version stamp, closing the input iterator on abort, the state machine
+replacing the single abort flag, ordered-stage placeholders, the order of the checkpoint write) are
+implementation details to be handled when the work is built; they need no decision.
