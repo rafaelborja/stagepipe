@@ -383,9 +383,13 @@ do not cover and that the older thread-based libraries have left behind.
 - [ ] Optional smaller thread stacks for very small containers.
 
 ### Then: make it safe to rerun and easy to watch (0.2)
-- [ ] **Resume after a crash**, with the lightest possible persistence: one small file per item
-      per stage, written atomically, plus an append-only journal. No database. A rerun skips
-      work that is already done.
+- [ ] **Resume after a crash**, with the lightest possible persistence: `run(..., checkpoint=dir,
+      key=fn)`. When an item finishes the last stage, its result is written to `<dir>/<key>.done`
+      (temporary file, then an atomic rename); a rerun with the same directory skips every stage
+      for items already done and hands their stored results over, marked as restored. Pluggable
+      serializer (pickle by default), failures never checkpointed so they are retried, duplicate
+      keys rejected, and no memory that grows with the number of items. No database. *Asked for
+      by a production user who wrote this save-and-skip logic by hand.*
 - [ ] **Events for dashboards**: a stable, versioned event stream (enter/exit per stage, worker,
       duration, queue depth) written as JSON lines or sent to a callback. A dashboard can be a
       separate project that just reads it.
