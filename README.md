@@ -431,7 +431,9 @@ do not cover and that the older thread-based libraries have left behind.
 ### Later: bigger shapes (0.3 and beyond)
 - [ ] One-to-many stages (a page becomes several regions) and parallel branches that join again.
 - [ ] Process-backed stages for CPU-bound Python, with workers recycled after N items to contain
-      leaks. (Measured in a real pipeline: CPU-bound PyTorch ran 1.7x faster in separate
+      leaks. Design points: values cross the boundary by pickling (a copy per in-flight item),
+      every worker loads its own models, but a crash in native code only kills that worker and a
+      stuck worker can be killed, which threads cannot offer. (Measured in a real pipeline: CPU-bound PyTorch ran 1.7x faster in separate
       processes than in threads.)
 - [ ] Adaptive concurrency for rate-limited APIs (back off on errors, speed up when healthy).
 - [ ] Mixed sync and async stages.
@@ -448,7 +450,13 @@ do not cover and that the older thread-based libraries have left behind.
     job on `3.14t`), then documentation.
   - *Interpreter-backed stages* (Python 3.14+, `concurrent.futures.InterpreterPoolExecutor`): CPU-bound
     pure-Python stages in subinterpreters, lighter than processes. Optional, detected at run time,
-    part of the process-backed-stages item above.
+    imported only when a stage asks for it, part of the process-backed-stages item above.
+    Measured on Python 3.15.0rc2 (Windows, one machine): about 7 MB per idle interpreter and
+    12 to 14 MB once a stage has imported ordinary standard-library modules, against 10 to 16 MB per
+    process and about 0.1 MB per extra thread; `-X lazy_imports=all` cut four interpreters that
+    import seven modules and use one from 57.6 MB to 41.3 MB. Importing the executor class itself is
+    cheap (about 3.7 MB, the same as the thread executor). Not yet checked: which C extensions
+    (numpy, onnxruntime, PIL) load inside a subinterpreter.
   - *`os.process_cpu_count()`* (3.13+) to suggest worker counts that respect CPU affinity, with
     `os.cpu_count()` as the fallback.
 
