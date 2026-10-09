@@ -322,6 +322,28 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 
 ---
 
+## Upgrading from 0.0.x
+
+**Nothing breaks.** `run()` and `Stage(name, fn, workers, ordered)` take the same arguments and
+behave the same: results come back in input order, ordered stages see items in order, `on_done`
+and `Cancelled` work as before, and the default is still "the first exception stops the run".
+Production users upgraded with no code change.
+
+Three features are worth adopting first:
+
+- **`stats=Stats()`**: `stats.report()` shows each stage's busy share and queue wait, and names the bottleneck.
+- **`Stage(init=fn)`**: one model or session per worker thread, replacing `threading.local()` code.
+- **`on_error="collect"`**: a failing item becomes a `Failed(stage, index, exc)` and the run carries on.
+  Check `isinstance(result, Failed)` in `on_done` and in the results; a failed item skips the
+  remaining stages, including an `ordered` one.
+
+What did change, all internal: `Stage` is a plain class instead of a dataclass (no equality by
+value, no `dataclasses.asdict`), the module no longer exposes `threading`, `queue` or `typing` as
+attributes, Ctrl-C now stops a run promptly instead of draining it, and `import stagepipe` is far
+lighter (about 2 MB less).
+
+---
+
 ## Status and known limits
 
 **Alpha, version 0.1.0.** It was extracted from a working document-processing pipeline where it
@@ -396,6 +418,9 @@ do not cover and that the older thread-based libraries have left behind.
 - [ ] Shared limits across stages, e.g. a `gpu=1` slot that three stages compete for, and
       `Stage(limiter=<Semaphore>)` so one semaphore caps a resource across several runs in the same
       process (three runs of 3 workers must not put 9 calls on a service that accepts 4).
+- [ ] A teardown for `init` state: `Stage(init=..., close=fn)`, called in the worker thread when the
+      run ends, even when it aborts, so pooled models can be given back. *Asked for by a production
+      user that borrows models from a pool.*
 - [ ] A memory budget in bytes, not only an item count.
 
 ### Later: bigger shapes (0.3 and beyond)

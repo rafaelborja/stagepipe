@@ -10,6 +10,8 @@ Planned work is described in the [roadmap](README.md#roadmap). Next: file checkp
 ([#9](https://github.com/rafaelborja/stagepipe/issues/9)), a shared limiter across runs ([#6](https://github.com/rafaelborja/stagepipe/issues/6)),
 and retries ([#3](https://github.com/rafaelborja/stagepipe/issues/3)).
 
+- README: "Upgrading from 0.0.x" section; roadmap entry for an `init` teardown hook.
+
 ## [0.1.0] - 2026-10-09
 
 The library changes: error policy, per-worker init, bottleneck report, partial results, bounded memory,
