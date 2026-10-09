@@ -1,6 +1,7 @@
 # Architecture proposal: stage boundaries, effects, resume, graceful stop
 
-Status: **proposed**. Nothing here is built. It is the result of an independent read-only review
+Status: **proposed**. Nothing here is built. The review guide with diagrams and the list of decisions is
+[stage-classes.md](stage-classes.md); this note holds the full reasoning. It is the result of an independent read-only review
 of the whole library and roadmap against requirements R1 to R5 in [decisions.md](decisions.md),
 followed by the maintainer's decisions listed at the end. Memory stays independent of the number
 of items throughout (R5).
@@ -313,7 +314,7 @@ option (`keep=`); and a per-item scratch path for `scratch` stages.
 1. **One `Stage` class with `save=` and `effect=` keywords** (both reports recommend it), versus a
    separate class per kind as first suggested. A class per kind multiplies the combinations of retry,
    resume and stop; helper constructors (for example `Stage.once(...)`) can be added later as sugar.
-2. Resume means "re-run the failed stage from its last saved boundary", not "resume inside a stage".
+2. Resume means "re-run the failed stage from its last saved boundary", not "resume inside a stage". **Agreed**, with custom recovery logic added (see stage-classes.md).
 3. The stop semantics (rules 1 to 6) and the API `stop=Event`, `grace=`.
 4. The phases: 0.1.2 `close` + stop/grace, 0.2 retry + save + checkpoint, 0.3 `once` effects; limiter
    and the `3.14t` job any time.

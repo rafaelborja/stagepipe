@@ -22,6 +22,9 @@ Issue numbers refer to https://github.com/rafaelborja/stagepipe/issues.
 | 2026-10-09 | **Contract by boundary** (not "option 1 everywhere"): retry within a run needs no serialization; resume needs a stable key plus serializable stored data; process/interpreter stages need an importable function and picklable values. | [restartability](restartability.md) |
 | 2026-10-09 | Stage functions must be able to reach their item's key and attempt number (mechanism undecided: `stagepipe.current()` or an opt-in argument). | [restartability](restartability.md) |
 
+| 2026-10-09 | **Resume rule:** a restarted run continues each item from its last saved boundary; the failed or interrupted stage is re-run from its saved input. No promise to resume inside a running stage. | [stage-classes](stage-classes.md) |
+| 2026-10-09 | **Custom recovery (R6):** a stage may supply recovery logic (a function, a lambda is enough) that decides on a restarted run whether the work is already done (Skip), must be redone (Rerun) or needs a human (Fail). It lifts the ban on retrying or re-running destructive stages: the library requires the logic instead of forbidding the stage, and checks that it is present when the stage is created. | [stage-classes](stage-classes.md) |
+
 ## Shipped
 
 - 0.0.1 to 0.0.3: library, README, CI matrix, footprint report, examples.
@@ -57,6 +60,7 @@ design, so a whole-architecture review was requested; its result will be recorde
   overwrite, send, bill): must not be retried or re-run blindly; resume checks a precondition or a
   done marker first, and "already deleted" counts as success for an idempotent delete.
   A stage needs a cheap way to declare its class, with a safe default when it does not.
+- **R6. Custom resume and recovery logic.** The user can supply it (a lambda is enough); it can bypass the restriction on destructive stages by requiring that logic instead of forbidding the stage, and it is verified when the stage is created. A validation operation or command line check is a feature request.
 - **R5. Always light on memory.** Every one of the above must keep memory independent of the number
   of items.
 
@@ -72,6 +76,8 @@ design, so a whole-architecture review was requested; its result will be recorde
   [restartability.md](restartability.md).
 
 ## Open
+
+- **Decisions waiting on the review guide** ([stage-classes.md](stage-classes.md), section 5): class per kind or keywords, stop result, drain control, undeclared stages, release order, cuts, validation tool.
 
 - **Reconcile the two architecture reports** ([architecture.md](architecture.md), addendum): effect vocabulary (pure / scratch / target / destructive), when an undeclared stage is refused, whether a stop raises Stopped or returns normally, drain= control, and whether persistence is 0.2 or 0.3.
 
