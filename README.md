@@ -383,6 +383,9 @@ Persistence, for example, will be plain files on disk, written atomically and ke
 possible. The layout is open (a file per item, per-stage checkpoints, a small journal: whatever
 stays lightest), but it will never need a database or an index of all the items held in memory.
 
+Design notes behind this roadmap (principles, execution models, how retry and resume should work,
+and a decision log) are in [docs/design](https://github.com/rafaelborja/stagepipe/tree/main/docs/design).
+
 The aim: stay tiny and dependable, and become the best answer for *"I have blocking code in
 stages and I want it parallel, safe and observable"*, the niche that async libraries
 do not cover and that the older thread-based libraries have left behind.
