@@ -379,9 +379,9 @@ handling, timing, partial results, per-worker setup) is fixed in 0.1.0.
 
 **Design rule for everything below: memory grows with `max_in_flight`, never with the number of
 items, and nothing needs a database or a server.** Features that would break that rule do not ship.
-Persistence, for example, will be plain files on disk (one small file per item per stage plus an
-append-only journal), read back as a stream; at most one bit per item is kept in memory to
-remember what is done, which is 125 KB for a million items.
+Persistence, for example, will be plain files on disk (one small file per finished item, written
+atomically), looked up only when that item is fed, so nothing about the items already done is
+held in memory.
 
 The aim: stay tiny and dependable, and become the best answer for *"I have blocking code in
 stages and I want it parallel, safe and observable"*, the niche that async libraries
@@ -408,9 +408,8 @@ do not cover and that the older thread-based libraries have left behind.
       user that borrows models from a pool.*
 
 ### Next, still in the 0.1 line
-- [ ] `retry(n, backoff)` as an `on_error` policy.
-- [ ] Streaming results as an iterator (`for r in stream(...)`).
-- [ ] Optional smaller thread stacks for very small containers.
+- [ ] `retry(n, backoff)` as an `on_error` policy. (Today: wrap the stage function in a small
+      retry loop; see the README discussion and issue #3.)
 
 ### Then: make it safe to rerun and easy to watch (0.2)
 - [ ] **Resume after a crash**, with the lightest possible persistence: `run(..., checkpoint=dir,
@@ -435,7 +434,22 @@ do not cover and that the older thread-based libraries have left behind.
       processes than in threads.)
 - [ ] Adaptive concurrency for rate-limited APIs (back off on errors, speed up when healthy).
 - [ ] Mixed sync and async stages.
-- [ ] Verified on free-threaded Python builds.
+- [ ] Streaming results as an iterator (`for r in stream(...)`), if users ask for it. Today
+      `keep_results=False` plus `on_done` already gives flat memory (push style), but `on_done`
+      runs in a worker thread. An iterator is pull style: the caller consumes in its own thread,
+      `break` stops the run, errors surface where the loop is, and a generator pipeline composes
+      naturally. It adds API surface, so it waits for real demand.
+- [ ] Optional smaller thread stacks for very small containers.
+- [ ] **Newer Python versions, without forking the code.** One code path for every supported
+      version, using feature detection (`try: import ...`), not version checks:
+  - *Free-threaded builds* (3.13t, 3.14t): threads run Python code in parallel, so the "threads only
+    help when the GIL is released" caveat disappears. Needs verification first (a non-blocking CI
+    job on `3.14t`), then documentation.
+  - *Interpreter-backed stages* (Python 3.14+, `concurrent.futures.InterpreterPoolExecutor`): CPU-bound
+    pure-Python stages in subinterpreters, lighter than processes. Optional, detected at run time,
+    part of the process-backed-stages item above.
+  - *`os.process_cpu_count()`* (3.13+) to suggest worker counts that respect CPU affinity, with
+    `os.cpu_count()` as the fallback.
 
 ### Python versions
 Tested in CI on CPython 3.10, 3.11, 3.12, 3.13 and 3.14, on Linux, Windows and macOS, and the
