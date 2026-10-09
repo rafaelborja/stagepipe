@@ -19,7 +19,6 @@ Issue numbers refer to https://github.com/rafaelborja/stagepipe/issues.
 | 2026-10-09 | Optional smaller thread stacks move to "Later". | roadmap |
 | 2026-10-09 | One code path for all Python versions, feature detection instead of version checks; free-threaded, interpreter stages and `os.process_cpu_count()` are optional later items. | [principles](principles.md), [execution-models](execution-models.md) |
 | 2026-10-09 | The `pypi` GitHub environment is the only one the PyPI Trusted Publisher accepts. | PyPI settings |
-
 | 2026-10-09 | **Contract by boundary** (not "option 1 everywhere"): retry within a run needs no serialization; resume needs a stable key plus serializable stored data; process/interpreter stages need an importable function and picklable values. | [restartability](restartability.md) |
 | 2026-10-09 | Stage functions must be able to reach their item's key and attempt number (mechanism undecided: `stagepipe.current()` or an opt-in argument). | [restartability](restartability.md) |
 
@@ -46,9 +45,18 @@ design, so a whole-architecture review was requested; its result will be recorde
 - **R3. Different stage kinds by nature.** Memory-dependent stages (their input or state lives only
   in memory) should be a different class or method from stages whose data is on disk or
   re-creatable. Each kind defines how it is retried, resumed and shut down.
-- **R4. Distinguish operations by effect.** A stage that only reads and produces output (reads a file
-  and passes the result on) behaves differently from a stage with side effects (deletes a file, sends
-  a message, bills an API call) for retry, resume and suspension.
+- **R4. Distinguish operations by effect.** The effect of a stage decides what the library may do
+  automatically on retry, resume and suspension. At least these classes (the maintainer stressed that
+  writing a *working* file is not the same as writing a *target* file or deleting a file):
+  (a) pure or read-only (reads a file and passes the result on);
+  (b) writes to **working/scratch files** the pipeline makes for itself: private, regenerable, safe to
+  overwrite, redo or discard;
+  (c) writes to **target outputs** (externally visible): safe to repeat only if atomic and idempotent
+  (temporary file then rename, an upsert), otherwise needs a done marker or an idempotency key;
+  (d) **destructive or irreversible** operations on sources or the outside world (delete, move,
+  overwrite, send, bill): must not be retried or re-run blindly; resume checks a precondition or a
+  done marker first, and "already deleted" counts as success for an idempotent delete.
+  A stage needs a cheap way to declare its class, with a safe default when it does not.
 - **R5. Always light on memory.** Every one of the above must keep memory independent of the number
   of items.
 
