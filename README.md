@@ -62,15 +62,17 @@ start, nothing resident. `max_in_flight` caps how many items exist at once, so a
 cannot render 500 page images while a slow stage is still on page 3. Measured in a fresh process
 (CPython 3.12, Windows), 2,000 items of 20 KB each through two stages:
 
-| | Process memory after the run | Python heap peak |
-|---|---|---|
-| bare Python | 16.8 MB | |
-| **stagepipe** | **17.0 MB** (+0.2) | **0.5 MB** |
-| aiostream (`task_limit=2`) | 25.0 MB (+8.2) | 4.8 MB |
+![Memory: the whole process grows by 0.2 MB with stagepipe; importing it cost 2.07 MB in 0.0.3 and 0.03 MB in 0.1.0](https://raw.githubusercontent.com/rafaelborja/stagepipe/main/docs/memory.svg)
 
-aiostream is excellent and well maintained, and most of that difference is simply `asyncio`
-being loaded. If you already run an event loop it costs you nothing extra. If you do not, and
-memory is tight, a thread-and-queue design is the lighter tool. Reproduce with `bench/memory.py`.
+The whole process grows by 0.2 MB (the Python heap peaks at 0.5 MB), and `import stagepipe` alone
+costs 0.03 MB where 0.0.x cost about 2 MB. Reproduce with `bench/memory.py`.
+
+A word on comparisons: stagepipe is small because it does little. It chains blocking functions
+through thread pools and queues, nothing more. Libraries built on an event loop, such as
+[aiostream](https://github.com/vxgmichel/aiostream), carry more machinery (loading `asyncio` alone
+is about 6 MB) and offer far more in return: a full set of stream operators, merging, windowing and
+much else. If you need that, or your code is async, they are the better choice. stagepipe is for the
+narrower case where blocking functions in stages should cost almost nothing to run.
 
 Continuous integration repeats the footprint measurement on Linux, Windows and macOS for every
 Python from 3.10 to 3.14, and the full table is published in
@@ -296,13 +298,14 @@ and test on their own. There is no event loop to start and nothing to wrap in `a
 
 Two more reasons to pick stagepipe, both about running small:
 
-- **Small memory footprint.** No event loop and no heavy imports. Loading `asyncio` alone costs
-  about 6 MB of resident memory on CPython 3.12; stagepipe is about 2 MB today and the roadmap
-  takes it to a few hundred KB. That matters in serverless functions and on small devices.
+- **Small memory footprint.** No event loop and no heavy imports: `import stagepipe` adds under
+  0.1 MB and a running pipeline a few hundred KB. That matters in serverless functions and on
+  small devices. (An event loop is worth its cost when you use it; stagepipe is for when you
+  would rather not have one.)
 - **Surviving a crash without a database** (planned for 0.2, not in 0.0.x yet). The design is
   plain files: one small file per finished item and an append-only journal, with memory use that
-  does not grow with the number of items. aiostream has no persistence of any kind, so with it
-  you would build that yourself.
+  does not grow with the number of items. aiostream is a stream-operator library and does not aim
+  at persistence, so there you would build that yourself.
 
 ---
 
@@ -313,7 +316,7 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 | Option | Verdict |
 |---|---|
 | **concurrent.futures** by hand | The right foundation, and stagepipe is a thin layer over threads and queues. Wiring several stages yourself means re-deriving queues, shutdown, error propagation and the in-flight cap in every project. |
-| **[aiostream](https://github.com/vxgmichel/aiostream)** | Maintained and good for async code. For blocking functions it rejects parallelism: `stream.map(sync_fn, task_limit=4)` raises `ValueError: The 'task_limit' argument can only be used when the provided function is asynchronous`. Wrapping every stage in `asyncio.to_thread` works (8 x 0.3 s in 0.61 s) but needs an event loop and an async wrapper per function, and loading `asyncio` alone costs about 6 MB more than stagepipe's whole footprint. |
+| **[aiostream](https://github.com/vxgmichel/aiostream)** | Well maintained, far more complete (a rich set of stream operators), and the right choice for async code. Its concurrency limits (`task_limit`) apply to async functions, so blocking functions need an `asyncio.to_thread` wrapper per stage and an event loop to run on. stagepipe exists for the case where you would rather have plain blocking functions and no event loop at all, with a very small footprint. Different philosophy, not a replacement. |
 | **[pypeln](https://github.com/cgarciae/pypeln)** | The closest idea (`pl.thread.map(f, workers=4)`), but unmaintained since January 2022. On a clean Python 3.12 environment `import pypeln` fails with `No module named 'pkg_resources'` until you install `setuptools<81`, and output order is not preserved by default. |
 | **Dask, Ray, Celery, Prefect, Airflow** | Excellent, and a different class of tool: schedulers, clusters and brokers. Right when you need machines and dashboards, heavy when you need a function call. |
 

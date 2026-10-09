@@ -52,8 +52,8 @@ Memory is resident-set growth in a fresh process (psutil on Windows, `resource` 
   runners (1.5 to 1.9 s) are slower and noisier at timed sleeps; read them as a rough bound.
 - **Noise:** shared CI machines vary from run to run. These are orders of magnitude, not guarantees.
 
-Comparison with aiostream on one machine (CPython 3.12, Windows, 2,000 items of 20 KB, two stages):
-process memory after the run 17.0 MB for stagepipe against 25.0 MB for aiostream, on a bare Python
-of 16.8 MB. See `bench/memory.py` and the README.
+Whole-process memory on one machine (CPython 3.12, Windows, 2,000 items of 20 KB through two stages):
+16.8 MB for Python alone and 17.0 MB with a stagepipe run. See `bench/memory.py` and the README for
+the picture.
 
 *Generated 2026-10-08 from the CI artifacts of the 0.1.0 branch.*
