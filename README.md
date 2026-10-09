@@ -160,9 +160,51 @@ docs = run(urls, [
 | `ordered=True` | The stage sees items in index order (needs `workers=1`). Use it when a stage carries state across items. Earlier stages still run out of order. |
 | `max_in_flight=M` | At most M items are being processed at any moment. Bounds memory and keeps stages balanced. |
 | `cancelled=callable` | Checked before every call; when it returns true the run stops and raises `Cancelled`. |
+| `Stage(..., init=fn)` | `fn()` runs once in each worker thread; its result (a model, a session, a client) is passed to the stage function as a third argument: `fn(value, index, state)`. |
+| `keep_results=False` | `run()` keeps nothing and returns `None`; consume results in `on_done`. Memory stays flat however many items go through. |
+| `on_error=...` | What a failing stage function does. `None`/`"raise"` (default): stop the run and re-raise. `"collect"`: the item becomes a `Failed(stage, index, exc)`, skips the remaining stages, shows up in the results and in `on_done`, and everything else carries on. A callable `fn(stage, index, value, exc)` returns the value to continue with (for example a marker), or raises to stop the run. |
+| `partial=True` | With `cancelled`: instead of raising `Cancelled`, `run()` returns the results so far, with `UNFINISHED` for the items that had not finished. |
+| `stats=Stats()` | Fills in busy time, queue wait and queue depth per stage; `stats.report()` prints a table and names the bottleneck (see below). |
 | `on_done=callable` | Called with `(index, value)` as each item leaves the last stage. Good for progress bars. **It runs in a worker thread**, and concurrently if the last stage has several workers, so it must be thread-safe (or make the last stage `ordered`, which has exactly one worker). If it raises, the run is aborted and the exception is re-raised from `run()`, like an error in a stage. |
 
-If any stage raises, new work stops, workers drain, and the first exception is re-raised from `run()`.
+By default, if any stage raises, new work stops, workers drain, and the first exception is re-raised
+from `run()`. Interrupting the calling thread (Ctrl-C) stops the run just as promptly; a stage call
+that is already running cannot be interrupted, so `run()` waits for it for up to 30 seconds.
+
+### Which stage is the bottleneck?
+
+```python
+from stagepipe import Stage, Stats, run
+
+stats = Stats()
+run(pages, [Stage("render", render, 4), Stage("ocr", ocr, 3), Stage("save", save, 1, ordered=True)],
+    max_in_flight=12, stats=stats)
+print(stats.report())
+```
+
+```
+stage        workers  items failed  busy   avg run  avg wait max queue
+fast               2     24      0   11%    0.005s    0.007s        12
+slow               2     24      0   99%    0.050s    0.179s        10
+"slow" is the bottleneck (99% busy): more workers there will speed the run up; more workers on the other stages will not.
+wall time 0.61s
+```
+
+*busy* is the share of the run a stage's workers spent inside the stage function. *avg wait* is how
+long items sat in the queue with every worker busy, the number you cannot measure from inside a
+stage function: it piles up in front of the stage that needs more workers. Only totals are kept, so
+the report costs no memory that grows with the number of items.
+
+### Failures without losing the run
+
+```python
+results = run(chunks, stages, on_error="collect")
+good   = [r for r in results if not isinstance(r, Failed)]
+failed = [r for r in results if isinstance(r, Failed)]     # r.stage, r.index, r.exc
+```
+
+One bad item does not stop a long job, and an `ordered` stage keeps working because failed items
+still travel through it (without being processed).
 
 ---
 
@@ -219,22 +261,18 @@ These come from running stagepipe on a real five-stage document pipeline.
   scaled better (1.7x in that test). For a GPU, use a stage with one worker.
 - **A resource that is not thread-safe** (a PDF library, a database handle) goes behind a lock
   inside the stage function, or in a stage with `workers=1`.
-- **One model or session per worker thread.** Until `Stage(init=...)` exists (see the roadmap),
-  build it lazily in the stage function with `threading.local()`:
+- **One model or session per worker thread.** Use `init`, which runs once in each worker thread:
 
   ```python
-  import threading
-  _mine = threading.local()
+  def ocr(page, i, session):
+      return session.read(page)
 
-  def ocr(page, i):
-      if not hasattr(_mine, "session"):
-          _mine.session = load_model()      # once per worker thread
-      return _mine.session.read(page)
+  Stage("ocr", ocr, workers=4, init=load_model)     # four workers, four sessions
   ```
 - **Cancel, then resume.** When a run is cancelled or fails, items that were in flight are
-  dropped, not committed. So let the last stage save each item atomically (write to a temporary
-  file, then rename), and on the next run skip the items already saved. That makes a cancelled
-  run safe to restart.
+  dropped, not committed (use `partial=True` to get back what had finished). So let the last
+  stage save each item atomically (write to a temporary file, then rename), and on the next run
+  skip the items already saved. That makes a cancelled run safe to restart.
 - **`on_done` runs in a worker thread**, not in the thread that called `run()`. See the table above.
 
 ### What it is not
@@ -284,8 +322,9 @@ Checked on Python 3.12 in a clean virtual environment, with blocking functions.
 
 ## Status and known limits
 
-**Alpha, version 0.0.3.** It was extracted from a working document-processing pipeline where it
-replaces a hand-rolled look-ahead loop, and it passes its stress suite in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
+**Alpha, version 0.1.0.** It was extracted from a working document-processing pipeline where it
+replaces a hand-rolled look-ahead loop, and it passes its tests in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
+
 **In use today.** Two services run it in production, and neither needed a change to the library:
 
 - A **document-extraction** pipeline: five stages with different worker counts and at most 8 items
@@ -294,16 +333,18 @@ replaces a hand-rolled look-ahead loop, and it passes its stress suite in CI on 
 - An **audio-transcription** service, in three pipelines. One job of three audio chunks took 39 s
   instead of about 95 s run one after another.
 
-Things this first version does **not** do well yet. They are tracked as
-[issues](https://github.com/rafaelborja/stagepipe/issues) and are the first things on the roadmap:
+Still missing, and planned (see the roadmap):
 
-- **Ctrl-C does not cancel promptly.** If the calling thread is interrupted, queued work is still
-  drained before `run()` returns (measured: a 5 s job returned after 5.0 s).
-- **Memory is not bounded as designed.** `run()` keeps every input until it returns, an idle
-  worker keeps a reference to the last item it handled, and all results collect in one list.
-  Fine for hundreds of pages; not yet for streams of large objects.
-- **No failure recovery.** The first exception stops the whole run; there are no retries, and a
-  rerun starts from the beginning.
+- **No retries or backoff.** `on_error` lets a run survive a failing item, but nothing retries it
+  for you yet.
+- **No persistence.** A rerun starts from the beginning unless your last stage saves each item
+  and skips saved ones (the pattern above). Resume after a crash is planned for 0.2, with plain
+  files and no database.
+- **No shared limit across runs** yet (`Stage(limiter=...)`), and no fan-out: stages form a
+  straight line.
+
+Everything reported in the 0.0.x issues (Ctrl-C, memory bounded by `max_in_flight`, failure
+handling, timing, partial results, per-worker setup) is fixed in 0.1.0.
 
 ---
 
@@ -319,30 +360,25 @@ The aim: stay tiny and dependable, and become the best answer for *"I have block
 stages and I want it parallel, safe and observable"*, the niche that async libraries
 do not cover and that the older thread-based libraries have left behind.
 
-### Next: make the basics trustworthy (0.1)
-- [ ] Ctrl-C and cancel stop promptly and cleanly.
-- [ ] **Smaller footprint**, because memory is the point of this library:
-  - drop `dataclasses` and `typing` at run time, and replace the little we use of them with a few
-    lines of our own (about 2.4 MB less);
-  - import nothing until the first `run()`; on Python 3.15 this also plays well with the new
-    lazy-import flag (`-X lazy_imports`) and `__lazy_modules__`;
-  - use the C queue directly instead of the `queue` module;
-  - pull input lazily instead of copying it into a list, so a generator is never materialised;
-  - `keep_results=False` and streaming results (`for r in stream(...)`): nothing is kept, results
-    are handed over as they finish;
-  - workers let go of the last item they handled as soon as they are idle;
-  - optional smaller thread stacks for very small containers.
-- [ ] Failure policy: `on_error` per stage or per run (`collect` failed items and finish the rest, `skip`,
-      `raise`, or `retry(n, backoff)`), so one bad item never kills a long job. *Asked for by both
-      production users, who each wrapped every stage function in try/except.*
-- [ ] Partial results on cancel: return what finished, with a marker for unfinished items.
-- [ ] Per-worker setup: `Stage(init=...)`, run once in each worker thread, e.g. one model
-      session per worker. *Asked for by the first real user, who had to build it by hand with
-      `threading.local()`.*
-- [ ] A bottleneck report after every run: per stage and per item, **queue wait time** (item ready, no
-      free worker) against run time, busy and idle totals, items done and queue depth, so the
-      stage to scale is obvious. Wait time cannot be measured from inside a stage function. *Also asked for by the first real
-      user, who timed inside their stage functions.*
+### Done in 0.1.0: the basics, trustworthy
+- [x] Ctrl-C and cancel stop promptly and cleanly.
+- [x] **Smaller footprint**, because memory is the point of this library: no `dataclasses` or
+      `typing` at run time, nothing imported until the first `run()`, the C queue used directly,
+      input pulled lazily (a generator is never materialised), `keep_results=False`, and workers
+      that let go of the last item they handled.
+- [x] Failure policy: `on_error` (`"raise"`, `"collect"`, or a callable), so one bad item never
+      kills a long job. *Asked for by both production users, who each wrapped every stage
+      function in try/except.*
+- [x] Partial results on cancel (`partial=True`).
+- [x] Per-worker setup: `Stage(init=...)`. *Asked for by the first real user, who had to build it
+      by hand with `threading.local()`.*
+- [x] A bottleneck report (`stats=Stats()`): per stage, queue wait against run time, busy share,
+      items done and queue depth. *Also asked for by both production users.*
+
+### Next, still in the 0.1 line
+- [ ] `retry(n, backoff)` as an `on_error` policy.
+- [ ] Streaming results as an iterator (`for r in stream(...)`).
+- [ ] Optional smaller thread stacks for very small containers.
 
 ### Then: make it safe to rerun and easy to watch (0.2)
 - [ ] **Resume after a crash**, with the lightest possible persistence: one small file per item
