@@ -161,7 +161,7 @@ docs = run(urls, [
 | `ordered=True` | The stage sees items in index order (needs `workers=1`). Use it when a stage carries state across items. Earlier stages still run out of order. |
 | `max_in_flight=M` | At most M items are being processed at any moment. Bounds memory and keeps stages balanced. |
 | `cancelled=callable` | Checked before every call; when it returns true the run stops and raises `Cancelled`. |
-| `Stage(..., init=fn)` | `fn()` runs once in each worker thread; its result (a model, a session, a client) is passed to the stage function as a third argument: `fn(value, index, state)`. |
+| `Stage(..., init=fn, close=fn)` | `init()` runs once in each worker thread; its result (a model, a session, a client) is passed to the stage function as a third argument: `fn(value, index, state)`. `close(state)` runs once per worker, in that same thread, after its last call has returned: after a normal finish and also after a stage error, cancel or Ctrl-C, so pooled resources can be given back. If `close` raises, the other workers still close, the run's own error wins, and otherwise the first close error is raised. |
 | `keep_results=False` | `run()` keeps nothing and returns `None`; consume results in `on_done`. Memory stays flat however many items go through. |
 | `on_error=...` | What a failing stage function does. `None`/`"raise"` (default): stop the run and re-raise. `"collect"`: the item becomes a `Failed(stage, index, exc)`, skips the remaining stages, shows up in the results and in `on_done`, and everything else carries on. A callable `fn(stage, index, value, exc)` returns the value to continue with (for example a marker), or raises to stop the run. |
 | `partial=True` | With `cancelled`: instead of raising `Cancelled`, `run()` returns the results so far, with `UNFINISHED` for the items that had not finished. |
@@ -270,6 +270,9 @@ These come from running stagepipe on a real five-stage document pipeline.
 
   Stage("ocr", ocr, workers=4, init=load_model)     # four workers, four sessions
   ```
+
+  Add `close=release_model` to give each session back: it runs in the same worker thread, only
+  after that worker's last call has returned.
 - **Cancel, then resume.** When a run is cancelled or fails, items that were in flight are
   dropped, not committed (use `partial=True` to get back what had finished). So let the last
   stage save each item atomically (write to a temporary file, then rename), and on the next run
@@ -346,7 +349,7 @@ lighter (about 2 MB less).
 
 ## Status and known limits
 
-**Alpha, version 0.1.0.** It was extracted from a working document-processing pipeline where it
+**Alpha, version 0.1.1.** It was extracted from a working document-processing pipeline where it
 replaces a hand-rolled look-ahead loop, and it passes its tests in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
 
 **In use today.** Two services run it in production, and neither needed a change to the library:
@@ -399,6 +402,11 @@ do not cover and that the older thread-based libraries have left behind.
 - [x] A bottleneck report (`stats=Stats()`): per stage, queue wait against run time, busy share,
       items done and queue depth. *Also asked for by both production users.*
 
+### Done in 0.1.1
+- [x] A teardown for `init` state: `Stage(init=..., close=fn)`, called in the worker thread when the
+      run ends, even when it aborts, so pooled models can be given back. *Asked for by a production
+      user that borrows models from a pool.*
+
 ### Next, still in the 0.1 line
 - [ ] `retry(n, backoff)` as an `on_error` policy.
 - [ ] Streaming results as an iterator (`for r in stream(...)`).
@@ -418,9 +426,6 @@ do not cover and that the older thread-based libraries have left behind.
 - [ ] Shared limits across stages, e.g. a `gpu=1` slot that three stages compete for, and
       `Stage(limiter=<Semaphore>)` so one semaphore caps a resource across several runs in the same
       process (three runs of 3 workers must not put 9 calls on a service that accepts 4).
-- [ ] A teardown for `init` state: `Stage(init=..., close=fn)`, called in the worker thread when the
-      run ends, even when it aborts, so pooled models can be given back. *Asked for by a production
-      user that borrows models from a pool.*
 - [ ] A memory budget in bytes, not only an item count.
 
 ### Later: bigger shapes (0.3 and beyond)

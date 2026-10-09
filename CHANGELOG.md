@@ -10,7 +10,19 @@ Planned work is described in the [roadmap](README.md#roadmap). Next: file checkp
 ([#9](https://github.com/rafaelborja/stagepipe/issues/9)), a shared limiter across runs ([#6](https://github.com/rafaelborja/stagepipe/issues/6)),
 and retries ([#3](https://github.com/rafaelborja/stagepipe/issues/3)).
 
-- README: "Upgrading from 0.0.x" section; roadmap entry for an `init` teardown hook.
+
+## [0.1.1] - 2026-10-09
+
+### Added
+- `Stage(init=fn, close=fn)`: `close(state)` runs once per worker, in the worker thread that created
+  the state, after that worker's last call has returned: after a normal finish and also after a stage
+  error, cancel or Ctrl-C ([#10](https://github.com/rafaelborja/stagepipe/issues/10)). If `close`
+  raises, the other workers still close, the run's own error wins, and otherwise the first close
+  error is raised. A worker whose `init` failed has nothing to close. `close` without `init` is a
+  `ValueError`.
+- `tests/close_test.py`, run in CI, including a check that `close` never runs while a stage call is
+  still running.
+- README: "Upgrading from 0.0.x" section.
 
 ## [0.1.0] - 2026-10-09
 
@@ -93,7 +105,8 @@ First public release (alpha).
   in one list, so memory is not yet bounded by `max_in_flight` alone.
 - No failure recovery: the first exception aborts the run.
 
-[Unreleased]: https://github.com/rafaelborja/stagepipe/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rafaelborja/stagepipe/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rafaelborja/stagepipe/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rafaelborja/stagepipe/compare/v0.0.3...v0.1.0
 [0.0.3]: https://github.com/rafaelborja/stagepipe/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/rafaelborja/stagepipe/compare/v0.0.1...v0.0.2
