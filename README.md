@@ -379,9 +379,9 @@ handling, timing, partial results, per-worker setup) is fixed in 0.1.0.
 
 **Design rule for everything below: memory grows with `max_in_flight`, never with the number of
 items, and nothing needs a database or a server.** Features that would break that rule do not ship.
-Persistence, for example, will be plain files on disk (one small file per finished item, written
-atomically), looked up only when that item is fed, so nothing about the items already done is
-held in memory.
+Persistence, for example, will be plain files on disk, written atomically and kept as light as
+possible. The layout is open (a file per item, per-stage checkpoints, a small journal: whatever
+stays lightest), but it will never need a database or an index of all the items held in memory.
 
 The aim: stay tiny and dependable, and become the best answer for *"I have blocking code in
 stages and I want it parallel, safe and observable"*, the niche that async libraries
@@ -412,8 +412,9 @@ do not cover and that the older thread-based libraries have left behind.
       retry loop; see the README discussion and issue #3.)
 
 ### Then: make it safe to rerun and easy to watch (0.2)
-- [ ] **Resume after a crash**, with the lightest possible persistence: `run(..., checkpoint=dir,
-      key=fn)`. When an item finishes the last stage, its result is written to `<dir>/<key>.done`
+- [ ] **Resume after a crash**, with the lightest possible persistence. Proposed shape (the file
+      layout is not fixed): `run(..., checkpoint=dir, key=fn)`. When an item finishes the last
+      stage, its result is written to `<dir>/<key>.done`
       (temporary file, then an atomic rename); a rerun with the same directory skips every stage
       for items already done and hands their stored results over, marked as restored. Pluggable
       serializer (pickle by default), failures never checkpointed so they are retried, duplicate
