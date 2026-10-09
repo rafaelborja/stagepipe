@@ -6,6 +6,15 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
+Planned work is described in the [roadmap](README.md#roadmap). Next: file checkpoints so a killed run can resume
+([#9](https://github.com/rafaelborja/stagepipe/issues/9)), a shared limiter across runs ([#6](https://github.com/rafaelborja/stagepipe/issues/6)),
+and retries ([#3](https://github.com/rafaelborja/stagepipe/issues/3)).
+
+## [0.1.0] - 2026-10-09
+
+The library changes: error policy, per-worker init, bottleneck report, partial results, bounded memory,
+and a much lighter import.
+
 ### Added
 - `on_error` policy: `"raise"` (default), `"collect"` (failed items become `Failed(stage, index, exc)`,
   skip the remaining stages and appear in the results and in `on_done`; the run carries on) or a
@@ -30,11 +39,6 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ### Fixed
 - Issues #1 (Ctrl-C), #2 (memory), #4 (per-item error policy), #5 (timing), #7 (partial results).
-
-Planned work is described in the [roadmap](README.md#roadmap). The first item is a smaller memory footprint
-(no `dataclasses`/`typing` at run time, lazy input, `keep_results=False`); a prototype cuts the import
-cost from about 2.4 MB to about 0.2 MB. Known defects in 0.0.1 are tracked
-as [issues](https://github.com/rafaelborja/stagepipe/issues).
 
 ## [0.0.3] - 2026-10-08
 
@@ -87,7 +91,8 @@ First public release (alpha).
   in one list, so memory is not yet bounded by `max_in_flight` alone.
 - No failure recovery: the first exception aborts the run.
 
-[Unreleased]: https://github.com/rafaelborja/stagepipe/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/rafaelborja/stagepipe/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/rafaelborja/stagepipe/compare/v0.0.3...v0.1.0
 [0.0.3]: https://github.com/rafaelborja/stagepipe/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/rafaelborja/stagepipe/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rafaelborja/stagepipe/releases/tag/v0.0.1
