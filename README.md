@@ -8,7 +8,7 @@
 
 **Run your slow, blocking steps in parallel, and let every item move on the moment the next step is free.**
 
-A tiny pipeline for plain Python: no event loop, no server, no dependencies, about 130 lines of
+A tiny pipeline for plain Python: no event loop, no server, no dependencies, a few hundred lines of
 standard library. You say how many workers each stage gets; stagepipe keeps them all busy.
 
 ```python
@@ -31,9 +31,10 @@ and memory stays bounded.
 
 **Lightweight.** One file, standard library only (`threading` and `queue`). Nothing to run,
 nothing to configure, nothing written to disk. It lives inside your process and disappears
-when the call returns. It adds about **2 MB** to a bare Python process, and the machinery itself
-costs roughly **10 microseconds per item per stage** (around 100,000 items per second through a
-single no-op stage; the figure is noisy, between 7 and 50 us on a busy desktop).
+when the call returns. `import stagepipe` adds **under 0.1 MB** to a bare Python process (16 to 96 KB
+across Python 3.10 to 3.14 on Linux, Windows and macOS) and takes about a millisecond; a running
+pipeline adds a few hundred KB. The machinery itself costs roughly **3 to 10 microseconds per item**
+(a hundred thousand items per second or more through a single no-op stage).
 
 **Fast, where it counts.** Real pipelines are limited by the slowest stage, not by the framework.
 stagepipe makes sure the slow stage is never starved and the fast stages never sit idle waiting
@@ -64,8 +65,8 @@ cannot render 500 page images while a slow stage is still on page 3. Measured in
 | | Process memory after the run | Python heap peak |
 |---|---|---|
 | bare Python | 16.8 MB | |
-| **stagepipe** | **19.5 MB** (+2.7) | **2.3 MB** |
-| aiostream (`task_limit=2`) | 25.1 MB (+8.3) | 4.8 MB |
+| **stagepipe** | **17.0 MB** (+0.2) | **0.5 MB** |
+| aiostream (`task_limit=2`) | 25.0 MB (+8.2) | 4.8 MB |
 
 aiostream is excellent and well maintained, and most of that difference is simply `asyncio`
 being loaded. If you already run an event loop it costs you nothing extra. If you do not, and
@@ -74,8 +75,9 @@ memory is tight, a thread-and-queue design is the lighter tool. Reproduce with `
 Continuous integration repeats the footprint measurement on Linux, Windows and macOS for every
 Python from 3.10 to 3.14, and the full table is published in
 [docs/BENCHMARKS.md](https://github.com/rafaelborja/stagepipe/blob/main/docs/BENCHMARKS.md). Across those 15
-combinations, importing stagepipe cost between 1.6 and 2.6 MB of resident memory, and the
-machinery cost between 2.5 and 9 microseconds per item for a one-stage run (5 to 18 for three).
+combinations, importing stagepipe cost between 16 and 96 KB of resident memory (0.5 to 2 ms), a
+run of 2,000 items of 20 KB added 0.3 to 0.8 MB, and the machinery cost between 2.6 and 6.6
+microseconds per item for a one-stage run (3.5 to 9.8 for three).
 
 **Seconds, not nanoseconds.** stagepipe is for pipelines whose steps take milliseconds to minutes
 (an OCR page, an API call, a transcode), where running in parallel saves *seconds*. Ten
@@ -83,22 +85,19 @@ microseconds of bookkeeping per item disappears next to that. So whenever speed 
 pull in different directions, footprint wins: we are happy to spend a few milliseconds to save
 kilobytes.
 
-**Where today's ~2 MB goes.** Measured by importing each module alone in a fresh process
-(the numbers overlap, because these modules share dependencies, so they do not add up):
+**Where the 2 MB went.** Version 0.0.x imported about 2.4 MB: measured by importing each module
+alone in a fresh process (the numbers overlap, because these modules share dependencies):
 
-| Import | Extra resident memory | Why it is here |
+| Import | Extra resident memory | What 0.1.0 does instead |
 |---|---|---|
-| `dataclasses` | about 1.7 MB | Pulls in `inspect`, `re` and more, just to generate `__init__` for the small `Stage` class. |
-| `typing` | about 0.7 MB | Only for type hints, which are never evaluated at run time. |
-| `queue` | about 0.4 MB | The thread-safe queue; the C implementation underneath is much smaller. |
-| stagepipe's own code | close to 0 | |
+| `dataclasses` | about 1.7 MB (it pulls in `inspect`, `re` and more) | `Stage` is a few lines of plain Python with `__slots__`. |
+| `typing` | about 0.7 MB (only for type hints) | Annotations are never evaluated at run time; type checkers still read them. |
+| `queue` | about 0.4 MB | The C queue underneath is used directly. |
+| `threading` and the queue | needed to run | Loaded on the first `run()`, not at `import stagepipe`. |
 
-Neither `dataclasses` nor `typing` is needed to run a pipeline. They are conveniences, and
-removing them is the first item on the [roadmap](#roadmap). A prototype already brings the import
-cost from about 2.4 MB to about 0.2 MB: `Stage` becomes a few lines of plain Python, the type
-hints are only read by type checkers, and `threading` plus the C queue load on the first `run()`
-instead of at import. The same prototype also feeds items lazily and can drop results as they
-are consumed, so memory stays flat however many items go through.
+Items are also pulled lazily from the input (a generator is never turned into a list), workers let
+go of the last item they handled as soon as they are idle, and `keep_results=False` keeps nothing
+at all, so memory stays flat however many items go through.
 
 ---
 
@@ -405,8 +404,8 @@ do not cover and that the older thread-based libraries have left behind.
 Tested in CI on CPython 3.10, 3.11, 3.12, 3.13 and 3.14, on Linux, Windows and macOS, and the
 release workflow only publishes if the whole matrix passes. Python 3.15 works locally (release
 candidate) and joins the CI matrix and the release workflow as soon as GitHub's runners offer it.
-Python 3.15's lazy imports (PEP 810) are on the list: the optional features above will load only when used, so
-`import stagepipe` stays near-instant.
+Python 3.15's lazy imports (PEP 810) need nothing from stagepipe: it already imports nothing heavy,
+and `threading` loads on the first `run()`, so `import stagepipe` is near-instant on every version.
 
 Want something on this list sooner, or something that is missing? Open an
 [issue](https://github.com/rafaelborja/stagepipe/issues) and describe your pipeline.
