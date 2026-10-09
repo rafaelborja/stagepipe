@@ -31,11 +31,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Stress tests
+      - name: Tests (stress, memory, features)
         shell: bash
         env:
           PYTHONPATH: src
-        run: python tests/stress.py
+        run: |
+          python tests/stress.py
+          python tests/memory_test.py
+          python tests/features_test.py
       - name: Footprint (memory and time)
         shell: bash
         run: |
