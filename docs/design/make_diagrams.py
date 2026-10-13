@@ -49,55 +49,45 @@ class Svg:
 
 # ---------------------------------------------------------------- 1. hierarchy: one class vs base + subclasses
 def hierarchy():
-    s = Svg(980, "Stage design options", "Option A: one Stage class with keywords. Option B: a base Stage class with Pure, Scratch, Target and Destructive subclasses.")
+    s = Svg(980, "Stage design options", "Option A: one Stage class with keywords. Option B, decided: a base Stage class with Transient and Permanent subclasses.")
     s.text(24, 34, "Decision 1: how should a stage declare what kind of work it does?", 17, 700)
-    s.text(24, 56, "Proposed designs only. Nothing is implemented. Memory cost is the same: classes exist once per stage, never per item.", 12, 400, MUTED)
+    s.text(24, 56, "Decided: Option B with two kinds. Nothing is implemented. Memory cost is the same: classes exist once per stage, never per item.", 12, 400, MUTED)
 
-    # panel A
-    ax, ay, aw, ah = 24, 76, 440, 492
+    ax, ay, aw, ah = 24, 76, 440, 420
     s.rect(ax, ay, aw, ah, GREY_BG)
-    s.text(ax + 16, ay + 28, "Option A: one class, keywords", 15, 700, BLUE)
-    s.rect(ax + 16, ay + 46, aw - 32, 164, WHITE, BLUE)
-    s.lines(ax + 28, ay + 70, ["Stage(name, fn, workers=3,", "      effect=\"destructive\",   # pure | scratch | target | destructive",
-                               "      save=True, retries=0,", "      idempotent=False,", "      recover=lambda ctx: ...)"], 12, 18)
-    s.text(ax + 16, ay + 236, "The runner decides what each value of effect= means:", 12, 600)
-    s.lines(ax + 16, ay + 258, ["if effect == \"destructive\": never retry; markers; ...", "elif effect == \"target\": retry only if idempotent; ...", "elif ...   (one switch, in the runner)"], 12, 17, MUTED)
-    s.text(ax + 16, ay + 330, "Good", 13, 700, GREEN)
-    s.lines(ax + 16, ay + 350, ["+ Smallest API: one name to learn", "+ Nothing new to import"], 12, 17)
-    s.text(ax + 16, ay + 396, "Costly", 13, 700, RED)
-    s.lines(ax + 16, ay + 416, ["- Behaviour for every kind lives in one big switch", "- Users cannot define their own kind", "- Validation rules are scattered"], 12, 17)
+    s.text(ax + 16, ay + 28, "Option A: one class, keywords (not chosen)", 15, 700, BLUE)
+    s.rect(ax + 16, ay + 46, aw - 32, 140, WHITE, BLUE)
+    s.lines(ax + 28, ay + 70, ["Stage(name, fn, workers=3,", "      effect=\"permanent\",   # transient | permanent",
+                               "      save=True, retries=0,", "      recover=lambda ctx: ...)"], 12, 18)
+    s.text(ax + 16, ay + 214, "The runner decides what each value of effect= means:", 12, 600)
+    s.lines(ax + 16, ay + 236, ["if effect == \"permanent\": never retry; markers; ...", "else: retry, redo, drop freely; ...", "(one switch, in the runner)"], 12, 17, MUTED)
+    s.text(ax + 16, ay + 302, "Good", 13, 700, GREEN)
+    s.lines(ax + 16, ay + 322, ["+ Smallest API: one name to learn", "+ Nothing new to import"], 12, 17)
+    s.text(ax + 16, ay + 360, "Costly", 13, 700, RED)
+    s.lines(ax + 16, ay + 380, ["- Behaviour lives in one switch; users cannot add a kind"], 12, 17)
 
-    # panel B
-    bx, by, bw, bh = 500, 76, 456, 492
+    bx, by, bw, bh = 500, 76, 456, 420
     s.rect(bx, by, bw, bh, GREY_BG)
-    s.text(bx + 16, by + 28, "Option B: base class + a subclass per kind", 15, 700, GREEN)
+    s.text(bx + 16, by + 28, "Option B: base class + a subclass per kind (chosen)", 15, 700, GREEN)
     s.text(bx + 16, by + 48, "behaviour lives ON the classes (retry, resume, stop, validate)", 12, 400, MUTED)
-    # base
     s.rect(bx + 118, by + 62, 220, 70, WHITE, "#6b7280")
     s.text(bx + 228, by + 82, "Stage", 14, 700, INK, "middle")
     s.text(bx + 228, by + 100, "undeclared = today's behaviour", 11, 400, MUTED, "middle")
     s.text(bx + 228, by + 117, "no retries or checkpoint allowed", 11, 400, RED, "middle")
-    # children
-    kids = [("Pure", GREEN, GREEN_BG, ["retry: yes", "re-run on resume: yes", "dropped at a stop: yes"]),
-            ("Target", AMBER, AMBER_BG, ["retry: only if idempotent", "marker: .done", "finishes at a stop"]),
-            ("Destructive", RED, RED_BG, ["retry: never", "markers: .start .done", "needs recover= or done="])]
-    cx = [bx + 12, bx + 160, bx + 308]
+    kids = [("Transient", GREEN, GREEN_BG, ["leaves no trace", "retry, redo, drop: yes", "scratch=True: own files", "cleaned up for you"]),
+            ("Permanent", RED, RED_BG, ["leaves a lasting change", "never repeated on its own", "markers: .start .done", "idempotent=True or recover="])]
+    cx = [bx + 24, bx + 240]
     for (name, col, bg, items), x in zip(kids, cx):
-        s.line(bx + 228, by + 132, x + 68, by + 162)
-        s.rect(x, by + 162, 136, 112, bg, col)
-        s.text(x + 68, by + 183, name, 14, 700, col, "middle")
-        s.lines(x + 8, by + 205, items, 10.5, 17, INK)
-    # scratch under pure
-    s.line(cx[0] + 68, by + 274, cx[0] + 68, by + 296)
-    s.rect(cx[0], by + 296, 136, 60, GREEN_BG, GREEN)
-    s.text(cx[0] + 68, by + 316, "Scratch", 14, 700, GREEN, "middle")
-    s.lines(cx[0] + 8, by + 334, ["+ per-item scratch path", "+ cleaned up for you"], 10.5, 15)
-    s.text(bx + 16, by + 384, "Good", 13, 700, GREEN)
-    s.lines(bx + 16, by + 402, ["+ Each kind owns and tests its own rules", "+ Users can subclass for their own kind", "+ Plain Stage keeps working unchanged"], 12, 16)
-    s.text(bx + 250, by + 384, "Costly", 13, 700, RED)
-    s.lines(bx + 250, by + 402, ["- Four more public names", "- Kind is fixed by inheritance"], 12, 16)
-    s.text(bx + 16, by + 474, "Leaning: Option B. The kinds differ in behaviour, not in data, and plain Stage stays safe.", 11.5, 600, GREEN)
-    s.save("stage-hierarchy.svg", 590)
+        s.line(bx + 228, by + 132, x + 96, by + 162)
+        s.rect(x, by + 162, 192, 124, bg, col)
+        s.text(x + 96, by + 183, name, 14, 700, col, "middle")
+        s.lines(x + 10, by + 207, items, 11, 18, INK)
+    s.text(bx + 16, by + 320, "Good", 13, 700, GREEN)
+    s.lines(bx + 16, by + 338, ["+ Each kind owns and tests its own rules", "+ Users can subclass for their own kind", "+ Plain Stage keeps working unchanged"], 12, 16)
+    s.text(bx + 250, by + 320, "Costly", 13, 700, RED)
+    s.lines(bx + 250, by + 338, ["- Two more public names", "- Kind is fixed by inheritance"], 12, 16)
+    s.text(bx + 16, by + 404, "Rule: does it leave a permanent trace? If yes, Permanent.", 11.5, 600, GREEN)
+    s.save("stage-hierarchy.svg", 516)
 
 
 # ---------------------------------------------------------------- 2. effect matrix
@@ -105,7 +95,7 @@ def matrix():
     s = Svg(980, "What the library may do, by kind of stage", "A grid of stage kinds against retry, re-run on resume, skip on resume, behaviour at a stop, and what the user must provide.")
     s.text(24, 34, "What the library may do automatically, by kind of stage", 17, 700)
     s.text(24, 56, "Proposed. Green: yes. Amber: only under a condition. Red: never (the user must handle it).", 12, 400, MUTED)
-    cols = [("Kind of stage", 190), ("Retry in a run", 130), ("Re-run on resume", 150), ("Skip on resume", 150), ("At a graceful stop", 170), ("You must provide", 134)]
+    cols = [("Kind of stage", 210), ("Retry in a run", 130), ("Re-run on resume", 150), ("Skip on resume", 150), ("At a graceful stop", 170), ("You must provide", 114)]
     x0, y0 = 24, 76
     x = x0
     for name, w in cols:
@@ -115,25 +105,24 @@ def matrix():
     G, A, R, N = (GREEN_BG, GREEN), (AMBER_BG, AMBER), (RED_BG, RED), (GREY_BG, MUTED)
     rows = [
         ("Stage (undeclared)", "today's behaviour", [("not allowed", R), ("not allowed", R), ("not allowed", R), ("finish in flight", N), ("declare a kind", N)]),
-        ("Pure (reads, passes on)", "e.g. read a file", [("yes", G), ("yes", G), ("if output saved", A), ("dropped, recomputed", G), ("nothing", N)]),
-        ("Scratch (working files)", "private, regenerable", [("yes, overwrite", G), ("yes", G), ("if output saved", A), ("dropped, recomputed", G), ("nothing (auto cleanup)", N)]),
-        ("Target, idempotent=True", "e.g. upsert, atomic write", [("yes", G), ("yes", G), ("if output saved", A), ("dropped", G), ("assert idempotent", N)]),
-        ("Target (not idempotent)", "visible output", [("no", R), ("after a marker check", A), ("if .done marker", A), ("finishes the call", A), ("recover= optional", N)]),
-        ("Destructive", "delete, move, send, bill", [("never", R), ("only via recover=", A), ("if .done or recover says so", A), ("finishes the call", A), ("recover= (required)", N)]),
+        ("Transient", "reads, parses, OCR: no trace", [("yes", G), ("yes", G), ("if output saved", A), ("dropped, recomputed", G), ("nothing", N)]),
+        ("Transient, scratch=True", "private working files", [("yes, overwrite", G), ("yes", G), ("if output saved", A), ("dropped, recomputed", G), ("nothing (cleanup)", N)]),
+        ("Permanent, idempotent=True", "atomic write, upsert", [("yes", G), ("yes", G), ("if .done marker", A), ("finishes the call", A), ("the promise", N)]),
+        ("Permanent", "delete, send, bill, append", [("never", R), ("only via recover=", A), ("if .done or recover says so", A), ("finishes the call", A), ("recover=", N)]),
     ]
     y = y0 + 40
     for kind, sub, cells in rows:
-        s.rect(x0, y, 190, 50, WHITE, LINE, 4)
+        s.rect(x0, y, 210, 50, WHITE, LINE, 4)
         s.text(x0 + 8, y + 21, kind, 12.5, 700)
         s.text(x0 + 8, y + 38, sub, 11, 400, MUTED)
-        x = x0 + 190
+        x = x0 + 210
         for (label, (bg, fg)), (name, w) in zip(cells, cols[1:]):
             s.rect(x, y, w, 50, bg, LINE, 4)
             s.text(x + w / 2, y + 30, label, 11.5, 600, fg, "middle")
             x += w
         y += 56
     s.text(24, y + 14, "Retry is a separate opt-in (retries=N), off by default. Skipping a stage needs its output saved, or recover= must supply a value.", 12, 400, MUTED)
-    s.text(24, y + 34, "A destructive stage must be first or follow a saved stage (its input must still exist on a restart). It is allowed only with custom recovery logic.", 12, 400, MUTED)
+    s.text(24, y + 34, "A Permanent stage must be first or follow a saved stage (its input must still exist on a restart), unless recover= says otherwise.", 12, 400, MUTED)
     s.save("effect-matrix.svg", y + 52)
 
 
@@ -141,7 +130,7 @@ def matrix():
 def stop_modes():
     s = Svg(980, "What happens to in-flight items at a graceful stop", "Five example items at the moment a stop is requested, and what each stop mode does with them.")
     s.text(24, 34, "Decision 3: what happens to items already in the pipeline when a stop is requested", 17, 700)
-    s.text(24, 56, "Example pipeline: read (Pure, not saved) -> upload (Target, an effect, not saved) -> save (Pure, saved). A stop arrives at this moment:", 12, 400, MUTED)
+    s.text(24, 56, "Example pipeline: read (Transient, not saved) -> upload (Permanent, not saved) -> save (Transient, saved). A stop arrives at this moment:", 12, 400, MUTED)
     cols = [("Item, at the moment of the stop", 260), ("No drain  (drain=False)", 220), ("Automatic  (drain=None)", 240), ("Drain everything  (drain=True)", 224)]
     x0, y0 = 24, 76
     x = x0

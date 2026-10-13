@@ -17,62 +17,52 @@ library only, no database, today's behaviour unchanged unless you opt in
 | Resume          | Resume means "re-run the failed stage from its last saved boundary" (not inside a running stage)                                                                                                                                                                                                             | **agreed**                                    |
 | Custom recovery | The user can supply custom resume and recovery logic (a lambda is enough). It also lifts the ban on retrying or re-running a destructive stage: the library then requires that logic instead of forbidding the stage. Checked when the stage is created. A validation operation or CLI is a feature request. | **agreed, details below**                     |
 | Key and attempt | Stage functions can reach their item's key and attempt number                                                                                                                                                                                                                                                | **agreed** (mechanism: `stagepipe.current()`) |
-| Stage classes   | **Decided: Option B**, a base class and a subclass per kind with the behaviour on the classes. The names of the kinds are still open (decision 9).                                                                                                                                                           | **decided**                                   |
+| Stage classes   | **Decided: Option B**, a base class and a subclass per kind with the behaviour on the classes. The kinds are `Transient` and `Permanent` (decisions 9 and 11).                                                                                                                                                           | **decided**                                   |
+| Kinds           | **Decided: two kinds, `Transient` and `Permanent`.** The rule is yours: does the stage leave a permanent trace? `scratch=True` and `idempotent=True` are options, not classes. | **decided**                                   |
 
 ---
 
 ## 1. Decision 1: one class with keywords, or a class per kind?
 
-<< whast the difference between Pure and Target?  really dont like the names . For the destructive (lets chnge that name) we only allow it to be rerun if a recovery/resume logic is proviced. The cost of clsses shouldn be tht high >>
-
-> **Answer to the comment above**
+> **Your rule, adopted.** Only two kinds matter to the library, because they are the only two that change
+> what it may do:
 >
-> **The difference between Pure and Target is whether the stage changes anything outside the pipeline.**
+> | Kind | Meaning | Examples | What the library may do |
+> |---|---|---|---|
+> | **`Transient`** | Leaves no trace. It can run any number of times and affects nothing. | read a file, parse, OCR, ask a model, convert into a private temporary file | retry, redo and drop it freely, also at a stop |
+> | **`Permanent`** | Once started, it creates a lasting change. | write to the destination, call an API that modifies things, delete, send, bill | never repeat it on its own; repeat only if you promise it is harmless (`idempotent=True`) or give a check (`recover=`); at a stop a running call always finishes |
 >
-> | Kind (current name) | What it does                                                                                        | Example                                                                | What the library may do                                                     |
-> | ------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-> | Pure                | Only computes a value and passes it on. Running it twice changes nothing in the world.              | read a file, parse, OCR, ask a model                                   | retry, redo and drop it freely                                              |
-> | Scratch             | Writes only the pipeline's own working files. Same freedom as Pure.                                 | convert into a temporary file                                          | redo freely; clean the files up                                             |
-> | Target              | Changes something other people or systems can see. Running it twice may do the visible thing twice. | write the final output file, upload, update a database, send a message | repeat only if you promise it is safe (idempotent) or supply recovery logic |
-> | Destructive         | Deletes, moves or overwrites a source, or does something that cannot be undone.                     | delete the original, send a letter, charge a card                      | never repeat on its own; repeat only through your recovery logic            |
+> **Why no third class.** Every case people might want a class for fits one of the two:
 >
-> So Pure versus Target asks "does it touch the outside world?", and Target versus Destructive asks
-> "can its effect be repeated or undone harmlessly?".
+> | Case | Where it fits |
+> |---|---|
+> | Working files private to the pipeline | `Transient(..., scratch=True)`: a per-item scratch path, cleaned up for you |
+> | An atomic write or an upsert (permanent, but a repeat is harmless) | `Permanent(..., idempotent=True)`: you promise it, so the library may retry it |
+> | A delete, a message, a charge | `Permanent(..., recover=check)`: you supply the check that makes a repeat safe |
+> | A stage that declares nothing | the plain base `Stage`: no retries, no checkpoint |
 >
-> **Names.** Agreed: Pure, Target and Destructive describe my reasoning more than what a user sees. Three
-> candidate sets, in plain words:
+> The earlier four kinds (Pure, Scratch, Target, Destructive) are gone: a non-idempotent Target and a
+> Destructive stage behaved identically, and Pure and Scratch differed only by a helper. Names came from
+> research into how Temporal, Airflow, Ansible, Nextflow, Snakemake and HTTP name these ideas;
+> "idempotent" is the field's word for the promise, and "transient" and "permanent" are plain English
+> for your own rule.
 >
-> | Current     | Set 1: by "safe to repeat?" | Set 2: by what it does | Set 3: short |
-> | ----------- | --------------------------- | ---------------------- | ------------ |
-> | Pure        | `Repeatable`                | `Compute`              | `Safe`       |
-> | Scratch     | `Scratch`                   | `Scratch`              | `Scratch`    |
-> | Target      | `Effect`                    | `Write`                | `Careful`    |
-> | Destructive | `Irreversible`              | `Remove`               | `Once`       |
->
-> Set 1 names the thing that drives the behaviour (may the library repeat it or not), so the name
-> already tells the reader what to expect. Set 2 reads naturally but is not accurate: an upload or a
-> message is not a "Write" to a file, and sending a letter is not a "Remove". Set 3 is short but vague.
-> My recommendation is **Set 1**; `Output` would be an alternative to `Effect`. This is new decision 9
-> below.
->
-> **Destructive stages.** Agreed, and already the proposal: such a stage may be re-run only if recovery
-> logic is provided. Without it the stage is refused when it is created (section 2).
->
-> **The cost of classes.** Agreed, I overstated it. It is four extra names to learn; there is no memory
-> cost and no cost per item.
+> **A `Permanent` stage may be re-run only with recovery logic.** Without `recover=` or `idempotent=True`
+> it is refused when retries or a checkpoint are on, as you said (section 2).
 
 You asked how the classes would look if behaviour lives on the classes themselves. This is the
 picture. **Option A** keeps one `Stage` and a keyword `effect=`; **Option B** makes the kinds
 real classes.
 
-![Option A, one Stage class with keywords, against Option B, a base Stage class with Pure, Scratch, Target and Destructive subclasses](img/stage-hierarchy.svg)
+![Option A, one Stage class with keywords, against Option B, a base Stage class with Transient and Permanent subclasses](img/stage-hierarchy.svg)
 
 ### What Option B looks like in code (sketch)
 
 ```python
 class Stage:                      # UNDECLARED: exactly today's behaviour. No retries, no checkpoint.
     def __init__(self, name, fn, workers=1, ordered=False, init=None, close=None,
-                 *, save=False, retries=0, backoff=0.5, retry_on=Exception, recover=None): ...
+                 *, save=False, retries=0, backoff=0.5, retry_on=Exception, recover=None,
+                 on_error=None): ...
 
     # behaviour: the runner asks the stage; defaults below are overridden per kind
     def check(self, position, stages): ...       # raise ValueError for an invalid declaration
@@ -80,28 +70,29 @@ class Stage:                      # UNDECLARED: exactly today's behaviour. No re
     def on_resume(self, ctx): ...                # -> Skip(value) | Rerun() | Fail(reason)
     def on_stop(self, ctx): ...                  # keep going to the end (True) or drop at the boundary (False)
 
-class Pure(Stage):        ...                    # reads and passes on: retry yes, re-run yes, drop at a stop yes
-class Scratch(Pure):      ...                    # + a per-item scratch path, cleaned up for you
-class Target(Stage):      ...                    # visible output: retry only if idempotent=True, else a .done marker
-class Destructive(Stage): ...                    # delete, move, send, bill: never blind; needs recover=
+class Transient(Stage): ...       # leaves no trace: retry yes, re-run yes, drop at a stop yes
+                                  #   option scratch=True: a per-item scratch path, cleaned up for you
+class Permanent(Stage): ...       # leaves a lasting change: never repeated on its own
+                                  #   option idempotent=True: you promise a repeat is harmless
+                                  #   option recover=: your check; markers .start and .done
 ```
 
 Using it:
 
 ```python
 run(items, [
-    Pure("read", read_file, workers=4),
-    Scratch("convert", convert, workers=3),                       # writes working files
-    Target("upload", upload, idempotent=True, retries=3),         # safe to repeat
-    Destructive("delete_source", delete,                          # needs custom recovery logic
-                recover=lambda ctx: Skip() if not os.path.exists(ctx.value) else Rerun()),
+    Transient("read", read_file, workers=4),
+    Transient("convert", convert, workers=3, scratch=True),         # writes working files
+    Permanent("upload", upload, idempotent=True, retries=3),        # permanent, but safe to repeat
+    Permanent("delete_source", delete,                              # needs custom recovery logic
+              recover=lambda ctx: Skip() if not os.path.exists(ctx.value) else Rerun()),
 ], checkpoint="work/", key=lambda it: it.id)
 ```
 
 A user can define a kind of their own by subclassing and overriding a behaviour:
 
 ```python
-class Billed(Target):                                             # never retried, always finishes at a stop
+class Billed(Permanent):                                             # never retried, always finishes at a stop
     def may_retry(self, attempt, exc): return False
 ```
 
@@ -120,8 +111,7 @@ the same as in Option A.
 - The reviewer preferred keywords because classes can multiply combinations. Here only the **effect**
   varies by class; `save`, `retries` and `recover` stay ordinary parameters on every class, so there is
   no explosion.
-- Cost: four more public names (`Pure`, `Scratch`, `Target`, `Destructive`), and a stage's kind is fixed
-  by its class.
+- Cost: two more public names (`Transient`, `Permanent`), and a stage's kind is fixed by its class.
 
 ---
 
@@ -157,24 +147,24 @@ Examples:
 
 ```python
 # a delete: if the file is already gone, count it as done
-Destructive("delete_source", delete,
+Permanent("delete_source", delete,
             recover=lambda ctx: Skip() if not os.path.exists(ctx.value) else Rerun())
 
 # a billed call: ask the provider whether the charge already happened
-Target("charge", charge,
-       recover=lambda ctx: Skip(find_invoice(ctx.key)) if invoice_exists(ctx.key) else Rerun())
+Permanent("charge", charge,
+          recover=lambda ctx: Skip(find_invoice(ctx.key)) if invoice_exists(ctx.key) else Rerun())
 
 # give up and let a human decide
-Destructive("send_letter", send, recover=lambda ctx: Fail("check the outbox first"))
+Permanent("send_letter", send, recover=lambda ctx: Fail("check the outbox first"))
 ```
 
-### How it relaxes the rules for destructive stages
+### How it relaxes the rules for Permanent stages
 
-Without `recover`, a destructive stage is **refused** whenever retries or a checkpoint are on (a blind
+Without `recover` (or `idempotent=True`), a `Permanent` stage is **refused** whenever retries or a checkpoint are on (a blind
 repeat could delete or send twice). With `recover`, the stage is **allowed**, because the user supplied
 the check that makes a repeat safe:
 
-- A destructive or non-idempotent target stage **may be retried** (`retries=N`): before each retry the
+- A `Permanent` stage **may be retried** (`retries=N`): before each retry the
   library calls `recover(ctx)`; `Skip` means the previous attempt did in fact happen, `Rerun` means try
   again.
 - It **may be re-run on resume** under the same check.
@@ -187,7 +177,7 @@ Today `on_error` is one setting for the whole run. Proposal: each stage may have
 
 ```python
 Stage("ocr", read_page, on_error="log")                                 # log it, keep the item as Failed, carry on
-Target("upload", upload, on_error=lambda stage, i, value, exc: None)    # or your own function
+Permanent("upload", upload, on_error=lambda stage, i, value, exc: None)    # or your own function
 run(items, stages, on_error="raise")                                    # the run-wide default, as today
 ```
 
@@ -212,9 +202,8 @@ Errors are raised as `ValueError` with a message that says how to fix it:
 
 | Where                  | Checked                       | Example message                                                                                                           |
 | ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Creating a stage       | always                        | `Destructive stage 'delete_source' needs recover=; a blind repeat could delete twice`                                     |
-| Creating a stage       | always                        | `Target stage 'upload' has retries=3 but is not idempotent; pass idempotent=True or recover=`                             |
-| Creating a stage       | always                        | `Stage 'x' uses retries=; declare what it does (Pure, Target, ...)`                                                       |
+| Creating a stage       | always                        | `Permanent stage 'delete_source' has retries=3 but no recover= or idempotent=True; a blind repeat could do it twice`      |
+| Creating a stage       | always                        | `Stage 'x' uses retries=; declare what it does (Transient or Permanent)`                                                  |
 | `run()` start          | only when `checkpoint=` is on | `stage 'delete_source' must be first or follow a stage with save=True (its input is lost on restart), or define recover=` |
 | `run()` start          | only when `checkpoint=` is on | `key= is required with checkpoint=`                                                                                       |
 | First checkpoint write | on first use                  | `result of stage 'ocr' for key 'p-17' cannot be serialized: ...`                                                          |
@@ -236,10 +225,9 @@ costs nothing at run time.
 Reading it: green means the library does it on its own; amber means only under a condition (an
 `idempotent=True` assertion, a marker, or your `recover` logic); red means never automatically.
 Retries stay a separate opt-in (`retries=N`, default 0). With `recover=` supplied, the red and amber
-cells in the *Destructive* row become allowed under your logic, as described in section 2.
+cells in the *Permanent* row become allowed under your logic, as described in section 2.
 
-A working file (**Scratch**) is deliberately different from a target file and from a delete: it is
-private to the pipeline and regenerable, so it can always be redone, and the library can clean it up.
+A working file (`Transient(..., scratch=True)`) is deliberately different from a destination file and from a delete: it is private to the pipeline and regenerable, so it can always be redone, and the library can clean it up.
 
 ---
 
@@ -289,68 +277,22 @@ Mark your choice and I will record it in [decisions.md](decisions.md) and the is
    from the roadmap
 8. **Validation tool.** [x ] Open an issue for `stagepipe.validate()` and a command line check (later)
    (the issue exists: #13)
-9. **Names of the kinds** (see the answer in section 1). [ ] **Set 1: `Repeatable` / `Scratch` /
-   `Effect` / `Irreversible` (recommended)**   [ ] Set 2: `ComputeOnly` / `Scratch` / `Write` / `Remove`
-   [ ] Set 3: `Safe` / `Scratch` / `Careful` / `Once`   [ x] Other: I still dont like the name Ho about more math related name? (idenpontent, etc? what about datbase like names)
+9. **Names of the kinds.** [x] **Decided: `Transient` / `Permanent`** (your rule: does it leave a permanent trace?)
+   [ ] Set 4: `Idempotent` / `Scratch` / `AtMostOnce`   [ ] Set 5: `Query` / `Scratch` / `Command`
 10. **Per-stage error handler.** [X ] **`on_error=` on each stage, run-wide default stays `"raise"`, plus a
     ready-made `"log"` (recommended)**    [ ] Stages without a handler log and carry on by default (changes
     today's behaviour)
 
-**Status after your second pass:** decisions 5, 6 and 10 are decided as recommended (a plain `Stage`
+**Status after your third pass:** decisions 5, 6 and 10 are decided as recommended (a plain `Stage`
 refuses `retries=` and `checkpoint=` but is fine with `stop=`; release order 0.1.2, then 0.2, then 0.3;
-`on_error=` per stage with `"raise"` as the run default plus a ready-made `"log"`). Still open: the names
-(decision 9, round 2 below) and two details of decision 2 that were not ticked (the `Skip` / `Rerun` /
-`Fail` shape of `recover=`, and errors raised when the stage is created; the second was agreed earlier in
-conversation).
+`on_error=` per stage with `"raise"` as the run default plus a ready-made `"log"`). Decisions 9 and 11 are
+decided by your two-kind proposal: **`Transient` and `Permanent`**, with `scratch=True` and
+`idempotent=True` as options. Still open: the `Skip` / `Rerun` / `Fail` shape of `recover=` (decision 2,
+first box); errors raised when the stage is created was agreed earlier in conversation.
 
-> **Answer to decision 9, round 2: math and database names, and a simplification that follows from them**
->
-> Your request for math or database vocabulary points at the standard terms for exactly what the library
-> cares about: **may this be run more than once?** That vocabulary is *idempotent* (math, databases) and
-> *at-most-once* / *at-least-once* (messaging and databases).
->
-> **A simplification I found while answering.** Check the matrix again: a *Target* stage that is not
-> idempotent and a *Destructive* stage behave **identically** in every cell: never retried on its own,
-> markers `.start` and `.done`, finishes its call at a stop, repeated only through your recovery logic.
-> The only difference was the label. And an idempotent *Target* (an atomic write, an upsert) is just a
-> repeat-safe stage. So the real kinds are not four, they are **two, plus the working-file variant**:
->
-> | Kind | Meaning | What the library does |
-> |---|---|---|
-> | **repeat-safe** (covers old Pure, idempotent Target) | Running it again gives the same result: reading, parsing, OCR, an atomic write, an upsert | retry, redo and drop freely |
-> | **Scratch** (a repeat-safe kind) | Same, and it writes working files | same, plus a per-item scratch path and cleanup |
-> | **run-once** (covers old non-idempotent Target and Destructive) | Running it twice could do the effect twice: delete, send, bill, append | never repeated on its own; markers; repeated only through your `recover=` logic |
->
-> The `idempotent=True` keyword then disappears: an idempotent write simply uses the repeat-safe kind.
-> One fewer class and one fewer parameter, and no behaviour is lost. If you would still like a separate
-> label for "visible output" versus "destructive" for documentation, that can be a name only.
->
-> **Name sets** (the first two use the vocabulary you suggested):
->
-> | Kind | Set 4: math and messaging | Set 5: database style (query/command) | Set 1 (old suggestion) |
-> |---|---|---|---|
-> | repeat-safe | `Idempotent` | `Query` | `Repeatable` |
-> | working files | `Scratch` | `Scratch` | `Scratch` |
-> | run-once | `AtMostOnce` | `Command` | `Irreversible` |
->
-> ```python
-> run(items, [
->     Idempotent("read", read_file, workers=4),                          # safe to repeat
->     Scratch("convert", convert, workers=3),                           # working files
->     Idempotent("upload", upload, retries=3),                          # an atomic upsert: repeat-safe
->     AtMostOnce("delete_source", delete,                               # never repeated without your logic
->                recover=lambda ctx: Skip() if not os.path.exists(ctx.value) else Rerun()),
-> ], checkpoint="work/", key=lambda it: it.id)
-> ```
->
-> **My recommendation: Set 4.** `Idempotent` is the exact technical word for "the library may run this
-> again", and `AtMostOnce` is the exact word for "the library will not run this twice on its own", so the
-> names state the promise instead of my reasoning. Set 5 reads well and is familiar, but `Query` and
-> `Command` suggest a database, which many users are not using. A plain `Stage` stays the undeclared
-> default. If you accept the simplification, the diagrams and the matrix will be regenerated with the two
-> kinds plus `Scratch`.
->
-> **New decision 11:** merge Target and Destructive into one run-once kind. [ ] **Yes, merge
-> (recommended)**   [ ] No, keep four kinds.
-> **Decision 9, round 2:** [ ] **Set 4: `Idempotent` / `Scratch` / `AtMostOnce` (recommended)**
-> [ ] Set 5: `Query` / `Scratch` / `Command`   [ ] Other: ______
+> **History: how the names were reached.** Four kinds (Pure, Scratch, Target, Destructive) were proposed
+> first. Round 2 offered math and database names (`Idempotent` / `AtMostOnce`, `Query` / `Command`) and
+> noticed that a non-idempotent Target and a Destructive stage behave the same. You then proposed the
+> two-category rule (no traces versus permanent changes), and the pair `Transient` / `Permanent` was chosen.
+> Rejected: `Idempotent` / `AtMostOnce` (precise but technical), `Query` / `Command` (suggests a database),
+> `Replayable` (clashes with Temporal's "replay").

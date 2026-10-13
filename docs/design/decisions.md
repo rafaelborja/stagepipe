@@ -87,7 +87,7 @@ design, so a whole-architecture review was requested; its result will be recorde
 
 ## Open
 
-- **Decisions waiting on the review guide** ([stage-classes.md](stage-classes.md), section 5): the names of the kinds (decision 9, round 2: Idempotent / Scratch / AtMostOnce recommended), whether to merge the non-idempotent Target kind and the Destructive kind into one run-once kind (decision 11, recommended: yes), and two details of custom recovery (the Skip / Rerun / Fail shape of recover=, errors raised at creation).
+- **Decided 2026-10-13** ([stage-classes.md](stage-classes.md), decisions 9 and 11): two kinds, `Transient` (leaves no trace, repeat-safe) and `Permanent` (creates a lasting change, never repeated on its own), with `scratch=True` and `idempotent=True` as options; the plain `Stage` stays the undeclared default. Still waiting: the Skip / Rerun / Fail shape of `recover=` and errors raised at creation.
 
 - **Reconcile the two architecture reports** ([architecture.md](architecture.md), addendum): effect vocabulary (pure / scratch / target / destructive), when an undeclared stage is refused, whether a stop raises Stopped or returns normally, drain= control, and whether persistence is 0.2 or 0.3.
 
