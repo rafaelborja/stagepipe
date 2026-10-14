@@ -12,6 +12,7 @@ documentation: the [README](../../README.md) is. Each note says what is **accept
 | [stage-classes.md](stage-classes.md) | **Start here for review.** Class per kind of stage, custom recovery logic, stop modes, with diagrams and the list of decisions to make. |
 | [restartability.md](restartability.md) | Retry and resume: what must be storable, the proposed contract, what to persist, failure modes and tests. |
 | [architecture.md](architecture.md) | **Proposed** whole-system design from an independent review: stage boundaries (durable or memory-only), effect classes, per-stage resume, graceful stop, phased plan, risks. Read this after restartability. |
+| [deadline.md](deadline.md) | **Proposed**: a per-call deadline (`deadline_s=`), three designs, rules for abandoning a running call, open questions. |
 | [decisions.md](decisions.md) | A dated log of decisions, proposals and open questions, with the issue numbers. |
 
 Last updated: 2026-10-09 (library version 0.1.0 released, 0.1.1 merged and not yet released; the
