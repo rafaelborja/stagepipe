@@ -41,6 +41,7 @@ jobs:
           python tests/features_test.py
           python tests/close_test.py
           python tests/current_test.py
+          python tests/stages_test.py
       - name: Footprint (memory and time)
         shell: bash
         run: |

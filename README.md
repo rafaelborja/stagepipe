@@ -31,8 +31,8 @@ and memory stays bounded.
 
 **Lightweight.** One file, standard library only (`threading` and `queue`). Nothing to run,
 nothing to configure, nothing written to disk. It lives inside your process and disappears
-when the call returns. `import stagepipe` adds **under 0.1 MB** to a bare Python process (16 to 96 KB
-across Python 3.10 to 3.14 on Linux, Windows and macOS) and takes about a millisecond; a running
+when the call returns. `import stagepipe` adds **about 0.1 MB** to a bare Python process (the CI table in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md) has the exact figure for each Python and OS) and takes a couple of milliseconds; a running
 pipeline adds a few hundred KB. The machinery itself costs roughly **3 to 10 microseconds per item**
 (a hundred thousand items per second or more through a single no-op stage).
 
@@ -77,7 +77,8 @@ narrower case where blocking functions in stages should cost almost nothing to r
 Continuous integration repeats the footprint measurement on Linux, Windows and macOS for every
 Python from 3.10 to 3.14, and the full table is published in
 [docs/BENCHMARKS.md](https://github.com/rafaelborja/stagepipe/blob/main/docs/BENCHMARKS.md). Across those 15
-combinations, importing stagepipe cost between 16 and 96 KB of resident memory (0.5 to 2 ms), a
+combinations, importing stagepipe 0.1.x cost between 16 and 96 KB of resident memory (0.5 to 2 ms; 0.2 adds the stage kinds, about
+60 KB more on the machine we checked), a
 run of 2,000 items of 20 KB added 0.3 to 0.8 MB, and the machinery cost between 2.6 and 6.6
 microseconds per item for a one-stage run (3.5 to 9.8 for three).
 
@@ -160,6 +161,13 @@ docs = run(urls, [
 | `Stage(name, fn, workers=N)` | N threads work on this stage in parallel. Give slow stages more. |
 | `ordered=True` | The stage sees items in index order (needs `workers=1`). Use it when a stage carries state across items. Earlier stages still run out of order. |
 | `max_in_flight=M` | At most M items are being processed at any moment. Bounds memory and keeps stages balanced. |
+| `Transient(name, fn)` / `Permanent(name, fn)` | Declare what a stage does. **`Transient`** leaves no trace: it can run any number of times and affects nothing (read, parse, OCR, ask a model), so the library may retry it, redo it and drop it at a stop. **`Permanent`** creates a lasting change (write to the destination, call an API that modifies things, delete, send, bill), so it is never repeated on its own. A plain `Stage` declares nothing: it works as before and refuses `retries=`. |
+| `retries=N, backoff=s, retry_on=(...)` | A failing call is repeated up to N times, waiting `backoff * 2**(n-1)` seconds between attempts (cancel and Ctrl-C end the wait). It happens inside the call, so the worker, the window slot and an `ordered` stage's position stay put; the error policy applies after the last attempt. A `Permanent` stage needs `idempotent=True` (you promise a repeat is harmless) or `recover=`. |
+| `recover=fn(ctx)` | On a `Permanent` stage, called before each retry. Return `Skip(value)` (the earlier attempt did happen: pass `value` on), `Rerun()` or `Fail(reason)` (the item fails with `RecoveryError`). `ctx` has `index`, `value` (the stage input), `attempt`. Example: `recover=lambda ctx: Skip() if os.path.exists(ctx.value) else Rerun()`. |
+| `Stage(..., on_error=...)` | The same forms as the run's `on_error`, plus `"log"` (collect and write one line to stderr). The stage's setting wins over the run's. |
+| `Stage(..., limiter=Semaphore)` | Acquired around each call, so one `threading.Semaphore` caps a resource across stages and across runs (three runs of 3 workers against a service that accepts 4). A concurrency cap, not rate limiting. |
+| `stop=Event, drain=None` | A requested stop, not an error: no new input is pulled, calls already running finish, and `run()` returns normally with `UNFINISHED` for items that did not finish and `stats.stopped` set. `drain=False` drops everything that has not started a call. `drain=None` (automatic) keeps going only for an item whose permanent effect already happened and is not saved yet, through `Transient` and plain stages, so no new effect starts. `drain=True` lets everything fed run to the end. |
+| `abort_wait=30.0` | How long `run()` waits for calls already running after an abort. `None` waits as long as it takes. `stats.stragglers` counts workers still running when it returned. |
 | `cancelled=callable` | Checked before every call; when it returns true the run stops and raises `Cancelled`. |
 | `Stage(..., init=fn, close=fn)` | `init()` runs once in each worker thread; its result (a model, a session, a client) is passed to the stage function as a third argument: `fn(value, index, state)`. `close(state)` runs once per worker, in that same thread, after its last call has returned: after a normal finish and also after a stage error, cancel or Ctrl-C, so pooled resources can be given back. If `close` raises, the other workers still close, the run's own error wins, and otherwise the first close error is raised. |
 | `keep_results=False` | `run()` keeps nothing and returns `None`; consume results in `on_done`. Memory stays flat however many items go through. |
@@ -170,7 +178,8 @@ docs = run(urls, [
 
 By default, if any stage raises, new work stops, workers drain, and the first exception is re-raised
 from `run()`. Interrupting the calling thread (Ctrl-C) stops the run just as promptly; a stage call
-that is already running cannot be interrupted, so `run()` waits for it for up to 30 seconds.
+that is already running cannot be interrupted, so `run()` waits for it for up to `abort_wait` seconds (30 by default).
+Inside a stage function, `stagepipe.current()` gives the stage name, the item's index and the attempt.
 
 ### Which stage is the bottleneck?
 
@@ -301,11 +310,11 @@ and test on their own. There is no event loop to start and nothing to wrap in `a
 
 Two more reasons to pick stagepipe, both about running small:
 
-- **Small memory footprint.** No event loop and no heavy imports: `import stagepipe` adds under
+- **Small memory footprint.** No event loop and no heavy imports: `import stagepipe` adds about
   0.1 MB and a running pipeline a few hundred KB. That matters in serverless functions and on
   small devices. (An event loop is worth its cost when you use it; stagepipe is for when you
   would rather not have one.)
-- **Surviving a crash without a database** (planned for 0.2, not in 0.0.x yet). The design is
+- **Surviving a crash without a database** (planned for 0.3). The design is
   plain files: one small file per finished item and an append-only journal, with memory use that
   does not grow with the number of items. aiostream is a stream-operator library and does not aim
   at persistence, so there you would build that yourself.
@@ -362,13 +371,11 @@ replaces a hand-rolled look-ahead loop, and it passes its tests in CI on CPython
 
 Still missing, and planned (see the roadmap):
 
-- **No retries or backoff.** `on_error` lets a run survive a failing item, but nothing retries it
-  for you yet.
+- Retries, a graceful stop and a shared limiter arrived in 0.2 (see above).
 - **No persistence.** A rerun starts from the beginning unless your last stage saves each item
-  and skips saved ones (the pattern above). Resume after a crash is planned for 0.2, with plain
+  and skips saved ones (the pattern above). Resume after a crash is planned for 0.3, with plain
   files and no database.
-- **No shared limit across runs** yet (`Stage(limiter=...)`), and no fan-out: stages form a
-  straight line.
+- **No fan-out**: stages form a straight line.
 
 Everything reported in the 0.0.x issues (Ctrl-C, memory bounded by `max_in_flight`, failure
 handling, timing, partial results, per-worker setup) is fixed in 0.1.0.
@@ -410,11 +417,18 @@ do not cover and that the older thread-based libraries have left behind.
       run ends, even when it aborts, so pooled models can be given back. *Asked for by a production
       user that borrows models from a pool.*
 
-### Next, still in the 0.1 line
-- [ ] `retry(n, backoff)` as an `on_error` policy. (Today: wrap the stage function in a small
-      retry loop; see the README discussion and issue #3.)
+### Done in 0.2 (unreleased)
+- [x] **Stage kinds**: `Transient` (leaves no trace) and `Permanent` (a lasting change), checked when the
+      stage is created. A plain `Stage` still works as before.
+- [x] **Retries** with backoff (`retries=`, `backoff=`, `retry_on=`), and `recover=` / `idempotent=` for
+      permanent stages (issue #3).
+- [x] **Per-stage `on_error`**, with a ready-made `"log"`.
+- [x] **Graceful stop**: `stop=`, `drain=`, `UNFINISHED`, `stats.stopped`.
+- [x] **Shared limiter**: `Stage(limiter=Semaphore)` (issue #6).
+- [x] `abort_wait=` and `stats.stragglers` (issue #11), and `stagepipe.current()`.
 
-### Then: make it safe to rerun and easy to watch (0.2)
+### Next (0.3)
+
 - [ ] **Resume after a crash**, with the lightest possible persistence. Proposed shape (the file
       layout is not fixed): `run(..., checkpoint=dir, key=fn)`. When an item finishes the last
       stage, its result is written to `<dir>/<key>.done`
@@ -426,9 +440,8 @@ do not cover and that the older thread-based libraries have left behind.
 - [ ] **Events for dashboards**: a stable, versioned event stream (enter/exit per stage, worker,
       duration, queue depth) written as JSON lines or sent to a callback. A dashboard can be a
       separate project that just reads it.
-- [ ] Shared limits across stages, e.g. a `gpu=1` slot that three stages compete for, and
-      `Stage(limiter=<Semaphore>)` so one semaphore caps a resource across several runs in the same
-      process (three runs of 3 workers must not put 9 calls on a service that accepts 4).
+- [ ] Named shared limits across stages within one run, e.g. a `gpu=1` slot that three stages compete for.
+      (A `limiter=` semaphore already caps a resource across stages and runs.)
 - [ ] A memory budget in bytes, not only an item count.
 
 ### Later: bigger shapes (0.3 and beyond)

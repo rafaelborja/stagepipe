@@ -6,11 +6,44 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
-Planned work is described in the [roadmap](README.md#roadmap). Next: stage kinds, retries, graceful stop and
-a shared limiter (0.2), then file checkpoints so a killed run can resume
-([#9](https://github.com/rafaelborja/stagepipe/issues/9)).
+Planned work is described in the [roadmap](README.md#roadmap). Next: file checkpoints so a killed run can
+resume, with markers, scratch directories and ordered-stage gap tokens
+([#9](https://github.com/rafaelborja/stagepipe/issues/9)), then `stagepipe.validate()` and a command line
+check ([#13](https://github.com/rafaelborja/stagepipe/issues/13)).
 
-### Added
+### Added (0.2 work)
+- **Stage kinds.** `Transient(name, fn)` leaves no trace and can be retried, redone and dropped at a stop;
+  `Permanent(name, fn)` creates a lasting change and is never repeated on its own. The plain `Stage` is the
+  undeclared default and behaves as before, but refuses `retries=`, `recover=` and `idempotent=`. Invalid
+  declarations raise `ValueError` when the stage is created. Kinds are classes: subclass one and override
+  `may_retry(attempt, exc)` or `check()` for a rule of your own.
+- **Retries.** `Stage(retries=N, backoff=s, retry_on=...)`: a failing call is repeated up to N times with
+  exponential backoff (`backoff * 2**(n-1)`), inside the call, so the worker, window slot and ordered position
+  stay. Cancel and Ctrl-C end a backoff wait. `Cancelled` is never retried. After the last attempt the stage's
+  error policy applies ([#3](https://github.com/rafaelborja/stagepipe/issues/3)).
+- **`Permanent` retries.** `idempotent=True` (you promise a repeat is harmless) or `recover=fn(ctx)`, called
+  before each retry and returning `Skip(value)`, `Rerun()` or `Fail(reason)` (`RecoveryError`). `ctx` has `key`
+  (the index for now), `index`, `value`, `began`, `finished`, `saved` and `attempt`.
+- **Per-stage `on_error`**, with the same forms as the run's and a new ready-made `"log"` (one line on stderr,
+  the item becomes a `Failed`). The stage's setting wins; the run default stays `"raise"`.
+- **Graceful stop.** `run(..., stop=Event, drain=None|True|False)`. A stop is a requested outcome, not an
+  error: no new input is pulled (the caller's iterator keeps the rest), calls already running finish, and
+  `run()` returns normally with `UNFINISHED` for items that did not finish, `stats.stopped` and
+  `stats.dropped`. `drain=None` (automatic) keeps an item going only if a `Permanent` effect already
+  happened for it and never starts a new permanent stage; `drain=False` drops everything that has not started
+  a call; `drain=True` lets all fed items finish. Dropped items travel to the end as markers, so `ordered`
+  stages never stall on a gap. Cancel and Ctrl-C still raise.
+- **Shared limiter.** `Stage(limiter=Semaphore)` is acquired around each call, so one semaphore caps a
+  resource across stages and across runs; the wait counts as queue wait, not busy time
+  ([#6](https://github.com/rafaelborja/stagepipe/issues/6)).
+- `tests/stages_test.py`, run in CI.
+
+### Changed
+- Plain `Stage(...)` accepts new keyword-only arguments; positional arguments are unchanged.
+- Import footprint grows by about 60 KB of resident memory on the machine we measured (40 to 100 KB), for the
+  stage kinds and stop logic; memory per item and per run is unchanged.
+
+### Added (0.1.2 work)
 - `run(..., abort_wait=30.0)`: how long `run()` waits, after an abort (stage error, cancel, Ctrl-C), for
   stage calls that are already running. `None` waits as long as it takes. `Stats.stragglers` reports how many
   workers were still running when `run()` returned ([#11](https://github.com/rafaelborja/stagepipe/issues/11)).
