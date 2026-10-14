@@ -6,10 +6,39 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
-Planned work is described in the [roadmap](README.md#roadmap). Next: file checkpoints so a killed run can
-resume, with markers, scratch directories and ordered-stage gap tokens
-([#9](https://github.com/rafaelborja/stagepipe/issues/9)), then `stagepipe.validate()` and a command line
-check ([#13](https://github.com/rafaelborja/stagepipe/issues/13)).
+Planned work is described in the [roadmap](README.md#roadmap). Next: `stagepipe.validate()` and a command line
+check ([#13](https://github.com/rafaelborja/stagepipe/issues/13)), `contextvars` for stage calls
+([#14](https://github.com/rafaelborja/stagepipe/issues/14)), retry on a result ([#15](https://github.com/rafaelborja/stagepipe/issues/15)),
+retry counts in `Stats` ([#16](https://github.com/rafaelborja/stagepipe/issues/16)), a per-call deadline
+([#17](https://github.com/rafaelborja/stagepipe/issues/17)) and a directory lock ([#18](https://github.com/rafaelborja/stagepipe/issues/18)).
+
+### Added (0.3 work)
+- **Resume after a crash or a stop** ([#9](https://github.com/rafaelborja/stagepipe/issues/9)):
+  `run(items, stages, checkpoint="dir", key=fn)`. The last stage's output is written to `dir/<stage>/<key>`
+  through a temporary file and an atomic rename; `Stage(save=True)` saves an earlier stage too. A rerun restores
+  each item from its latest saved output and runs only what is missing; earlier outputs are deleted once a later
+  one is safe. Restored items appear in the results and in `on_done` in index order, `Stats.restored` counts them
+  and `on_restored=` is called. Memory does not grow with the number of items (one existence probe per saved stage
+  for each fed item, no index of keys). Every stage must be declared (`Transient` or `Permanent`).
+- **Markers for permanent stages.** A `Permanent` stage that is not saved writes `.start` and `.done` markers. On a
+  rerun that finds them, `recover=` decides (`Skip(value)`, `Rerun()`, `Fail(reason)`), `idempotent=True` repeats the
+  stage, and otherwise the item fails with `RecoveryError`: an effect is never repeated blindly. `ctx.began` and
+  `ctx.finished` now report the markers.
+- `Transient(scratch=True)`: `stagepipe.current().scratch` is a private per-item path under the checkpoint folder
+  (or `scratch_dir=`), removed after each call.
+- `fingerprint=fn(item)` (an item whose input changed is redone), `serializer=` (default `pickle`; `dumps` may return
+  `bytes` or `str`), `current().key`, `Stats.saved`.
+- Ordered stages receive a gap token for every index a restored item skips, so they never stall; cross-item
+  state is not rebuilt for restored items.
+- Corrupt, empty or stale files count as misses and are redone; `Failed` items and `on_error` substitutes are never
+  saved; a stage output that cannot be serialized fails the run with an error naming the stage and the key.
+- A bug inside the library's worker loop now fails the run instead of leaving it waiting.
+- `tests/checkpoint_test.py`, run in CI, including a killed subprocess.
+
+### Known limits
+- One run per checkpoint directory (a lock is tracked in [#18](https://github.com/rafaelborja/stagepipe/issues/18)).
+- Checkpoint files are not fsynced: after a power loss a recent file may be missing or truncated, which is a miss
+  (the item is redone), never a wrong result.
 
 ## [0.2.0] - 2026-10-14
 

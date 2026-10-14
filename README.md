@@ -167,6 +167,9 @@ docs = run(urls, [
 | `Stage(..., limiter=Semaphore)` | Acquired around each call, so one `threading.Semaphore` caps a resource across stages and across runs (three runs of 3 workers against a service that accepts 4). A concurrency cap, not rate limiting. |
 | `stop=Event, drain=None` | A requested stop, not an error: no new input is pulled, calls already running finish, and `run()` returns normally with `UNFINISHED` for items that did not finish and `stats.stopped` set. `drain=False` drops everything that has not started a call. `drain=None` (automatic) keeps going only for an item whose permanent effect already happened and is not saved yet, through `Transient` and plain stages, so no new effect starts. `drain=True` lets everything fed run to the end. |
 | `abort_wait=30.0` | How long `run()` waits for calls already running after an abort. `None` waits as long as it takes. `stats.stragglers` counts workers still running when it returned. |
+| `checkpoint="dir", key=fn` | A killed or stopped run can resume. `key(item)` gives each item a stable, file-name-safe name. Every stage must be declared (`Transient` or `Permanent`). The last stage's output is saved to `dir/<stage>/<key>` (a temporary file, then an atomic rename); `Stage(save=True)` saves an earlier stage too (worth it for a slow or billed stage). A rerun restores each item from its latest saved output and runs only what is missing, and earlier outputs are deleted once a later one is safe, so disk use is about one file per item. Restored items appear in the results and in `on_done`, in index order, and are counted in `stats.restored` (`on_restored=fn(index, value)` is also called). Failed items, `on_error` substitutes and corrupt files are never trusted: they are redone. Optional: `serializer=` (default `pickle`; any object with `dumps` and `loads`), `fingerprint=fn(item)` (an item whose input changed is redone). Use one run per directory. |
+| `Permanent` + `checkpoint` | A `Permanent` stage that is not saved leaves `.start` and `.done` markers. If a rerun finds them, it asks `recover=`, repeats the stage when `idempotent=True`, and otherwise fails the item with `RecoveryError` rather than risk doing it twice. With `save=True` the saved output is the proof that it happened. |
+| `Transient(..., scratch=True)` | `stagepipe.current().scratch` is a private path for this item (under the checkpoint folder, or `scratch_dir=`), removed after each call. |
 | `cancelled=callable` | Checked before every call; when it returns true the run stops and raises `Cancelled`. |
 | `Stage(..., init=fn, close=fn)` | `init()` runs once in each worker thread; its result (a model, a session, a client) is passed to the stage function as a third argument: `fn(value, index, state)`. `close(state)` runs once per worker, in that same thread, after its last call has returned: after a normal finish and also after a stage error, cancel or Ctrl-C, so pooled resources can be given back. If `close` raises, the other workers still close, the run's own error wins, and otherwise the first close error is raised. |
 | `keep_results=False` | `run()` keeps nothing and returns `None`; consume results in `on_done`. Memory stays flat however many items go through. |
@@ -325,7 +328,7 @@ Two more reasons to pick stagepipe, both about running small:
   0.1 MB and a running pipeline a few hundred KB. That matters in serverless functions and on
   small devices. (An event loop is worth its cost when you use it; stagepipe is for when you
   would rather not have one.)
-- **Surviving a crash without a database** (planned for 0.3). The design is
+- **Surviving a crash without a database** (arrived in 0.3). The design is
   plain files: one small file per finished item and an append-only journal, with memory use that
   does not grow with the number of items. aiostream is a stream-operator library and does not aim
   at persistence, so there you would build that yourself.
@@ -384,8 +387,7 @@ Still missing, and planned (see the roadmap):
 
 - Retries, a graceful stop and a shared limiter arrived in 0.2 (see above).
 - **No persistence.** A rerun starts from the beginning unless your last stage saves each item
-  and skips saved ones (the pattern above). Resume after a crash is planned for 0.3, with plain
-  files and no database.
+  and skips saved ones (the pattern above). Resume after a crash arrived in 0.3: plain files, no database (see `checkpoint=`).
 - **No fan-out**: stages form a straight line.
 
 Everything reported in the 0.0.x issues (Ctrl-C, memory bounded by `max_in_flight`, failure
@@ -438,22 +440,18 @@ do not cover and that the older thread-based libraries have left behind.
 - [x] **Shared limiter**: `Stage(limiter=Semaphore)` (issue #6).
 - [x] `abort_wait=` and `stats.stragglers` (issue #11), and `stagepipe.current()`.
 
-### Next (0.3)
+### Done in 0.3 (unreleased)
+- [x] **Resume after a crash**: `run(..., checkpoint=dir, key=fn)`, `Stage(save=True)`, markers for permanent stages,
+      `recover=`, gap tokens for ordered stages, `scratch=True`, `fingerprint=`, `serializer=` (issue #9).
 
-- [ ] **Resume after a crash**, with the lightest possible persistence. Proposed shape (the file
-      layout is not fixed): `run(..., checkpoint=dir, key=fn)`. When an item finishes the last
-      stage, its result is written to `<dir>/<key>.done`
-      (temporary file, then an atomic rename); a rerun with the same directory skips every stage
-      for items already done and hands their stored results over, marked as restored. Pluggable
-      serializer (pickle by default), failures never checkpointed so they are retried, duplicate
-      keys rejected, and no memory that grows with the number of items. No database. *Asked for
-      by a production user who wrote this save-and-skip logic by hand.*
+### Next
+- [ ] `stagepipe.validate()` and a command line check (#13), `contextvars` for stage calls (#14), retry on a result (#15),
+      retry counts in `Stats` (#16), a per-call deadline (#17), a checkpoint directory lock (#18).
 - [ ] **Events for dashboards**: a stable, versioned event stream (enter/exit per stage, worker,
       duration, queue depth) written as JSON lines or sent to a callback. A dashboard can be a
       separate project that just reads it.
 - [ ] Named shared limits across stages within one run, e.g. a `gpu=1` slot that three stages compete for.
       (A `limiter=` semaphore already caps a resource across stages and runs.)
-- [ ] A memory budget in bytes, not only an item count.
 
 ### Later: bigger shapes (0.3 and beyond)
 - [ ] One-to-many stages (a page becomes several regions) and parallel branches that join again.
