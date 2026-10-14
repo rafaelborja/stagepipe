@@ -22,9 +22,13 @@ still-running call**, and each choice has a cost. Three honest designs:
 | B | **Abandon** the call: run each call in a helper thread, the worker waits `deadline` seconds, then records a timeout and moves on | The slot and the window recover; the run goes on. | One extra thread per call (milliseconds), a leaked running thread until it returns, and the questions below. |
 | C | **Cooperative cancel token** passed to the function | Clean when the function checks it | Needs every function to be written for it; same hang when it does not |
 
-Recommendation: ship **A** first (small, safe, immediately useful, and it is what fixes the 715 s case when
-the function uses the remaining time as its client timeout). Offer **B** later as an explicit opt-in
-(`abandon=True`), with the rules below, only if A is not enough in practice.
+Recommendation: ship **A** first (small, safe, and it gives one deadline per item across retries), then
+**B** as an explicit opt-in (`abandon=True`) with the rules below. Field report from the requesting service:
+**A alone does not fix their 715 s hangs**, because their client's timeout bounds each read, not the whole
+call, so a trickling response never trips it. They fixed it by running the call in its own thread, joining it
+with a timeout (60 s + 1.2 x the clip length) and abandoning it, which is design B and costs a leaked thread
+per abandoned call (acceptable to them). So both are needed. A is cheap and comes first; B is what removes
+their case.
 
 ## Rules if B is built
 
@@ -47,10 +51,11 @@ the function uses the remaining time as its client timeout). Offer **B** later a
 
 ## Open questions
 
-- Is A enough for the audio service? (Pass `current().remaining()` as the `httpx` total timeout.)
+- Settled by the field report: A is not enough on its own; B is needed (see above).
 - For B, is a fresh `init` state per abandonment acceptable, or do stages need a thread-safe declaration?
-- Should the deadline apply per attempt or across all retries? Proposal: per attempt, plus an optional
-  `total_deadline_s` later.
+- Per attempt or across all retries? The requesting service wants one deadline per item across retries
+  (`remaining()` shrinks across attempts) with a per-attempt cap. Proposal: both, `deadline_s` per attempt and
+  `total_deadline_s` per item.
 
 ## Tests to write if built
 
