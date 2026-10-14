@@ -6,9 +6,18 @@ All notable changes to stagepipe are recorded here. The format follows
 
 ## [Unreleased]
 
-Planned work is described in the [roadmap](README.md#roadmap). Next: file checkpoints so a killed run can resume
-([#9](https://github.com/rafaelborja/stagepipe/issues/9)), a shared limiter across runs ([#6](https://github.com/rafaelborja/stagepipe/issues/6)),
-and retries ([#3](https://github.com/rafaelborja/stagepipe/issues/3)).
+Planned work is described in the [roadmap](README.md#roadmap). Next: stage kinds, retries, graceful stop and
+a shared limiter (0.2), then file checkpoints so a killed run can resume
+([#9](https://github.com/rafaelborja/stagepipe/issues/9)).
+
+### Added
+- `run(..., abort_wait=30.0)`: how long `run()` waits, after an abort (stage error, cancel, Ctrl-C), for
+  stage calls that are already running. `None` waits as long as it takes. `Stats.stragglers` reports how many
+  workers were still running when `run()` returned ([#11](https://github.com/rafaelborja/stagepipe/issues/11)).
+  The default is unchanged.
+- `stagepipe.current()`: inside a stage function (or its `init` / `close`) it returns the stage name, the
+  item's `index` and the `attempt`; `None` outside a stage thread. One small object per worker, nothing per item.
+- `tests/current_test.py`, run in CI.
 
 
 ## [0.1.1] - 2026-10-09

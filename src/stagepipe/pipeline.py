@@ -27,6 +27,13 @@ Slow stages get more workers, fast ones fewer; an item waits only when the next 
   Failed(stage, index, exc) that skips the remaining stages and appears in the results (and in
   on_done), and the rest of the run carries on. A callable on_error(stage, index, value, exc)
   returns the value to carry on with (for example a marker), or raises to stop the run.
+* abort_wait: after an abort (stage error, cancel, Ctrl-C) run() waits at most this many seconds
+  (default 30.0; None waits as long as it takes) for stage calls that are already running, because
+  a running call cannot be interrupted. Stats.stragglers tells how many workers were still running
+  when run() returned; Stage(close=...) never runs while its worker is still inside a call.
+* current(): from inside a stage function (or its init/close), stagepipe.current() returns an object
+  with .stage (name), .index (the item's position) and .attempt (0 for the first call), or None
+  outside a stage thread. It saves threading the item index through your own code.
 * cancelled(): checked before every stage call; when true the run stops and raises Cancelled.
   With partial=True, run() returns the results so far instead, with UNFINISHED for the rest.
 * stats: pass a Stats() to get per-stage busy time, queue wait time and queue depth, and a
@@ -44,6 +51,7 @@ if TYPE_CHECKING:
     from typing import Any, Callable, Iterable
 
 _STOP = object()
+_local = None                                  # threading.local, created by the first run()
 
 
 def _never() -> bool:
@@ -79,6 +87,22 @@ class _Unfinished:
 UNFINISHED = _Unfinished()          # marks items that had not finished when a run was cancelled
 
 
+class Current:
+    """What current() returns: the stage name, the item's index and the attempt of the call in progress."""
+    __slots__ = ("stage", "index", "attempt")
+
+    def __init__(self, stage: str) -> None:
+        self.stage, self.index, self.attempt = stage, None, 0
+
+    def __repr__(self) -> str:
+        return f"Current(stage={self.stage!r}, index={self.index}, attempt={self.attempt})"
+
+
+def current() -> Current | None:
+    """The stage call in progress in this thread, or None when called from outside a stage thread."""
+    return getattr(_local, "cur", None) if _local is not None else None
+
+
 class Stage:
     __slots__ = ("name", "fn", "workers", "ordered", "init", "close")
 
@@ -102,10 +126,11 @@ class StageStats:
 
 class Stats:
     """Filled in by run(stats=...). Aggregates only: memory does not grow with the number of items."""
-    __slots__ = ("wall_s", "stages")
+    __slots__ = ("wall_s", "stages", "stragglers")
 
     def __init__(self) -> None:
         self.wall_s = 0.0
+        self.stragglers = 0                 # workers still running when run() returned after an abort
         self.stages: list[StageStats] = []
 
     def busy(self, stage: StageStats) -> float:
@@ -137,7 +162,8 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
         keep_results: bool = True,
         on_error: Any = None,
         partial: bool = False,
-        stats: Stats | None = None) -> list[Any] | None:
+        stats: Stats | None = None,
+        abort_wait: float | None = 30.0) -> list[Any] | None:
     for s in stages:
         if s.ordered and s.workers != 1:
             raise ValueError(f"stage {s.name!r}: ordered needs workers=1")
@@ -149,6 +175,9 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
         raise ValueError("partial=True needs keep_results=True")
     policy = "raise" if on_error in (None, "raise") else ("collect" if on_error == "collect" else "call")
     import threading                                   # first use, not at `import stagepipe`
+    global _local
+    if _local is None:
+        _local = threading.local()
     from time import perf_counter
     try:
         from _queue import SimpleQueue                 # the C queue, without the queue module around it
@@ -183,13 +212,14 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
                     return fail(exc)
             finished.release()
 
-    def _call(stage: Stage, i: int, value: Any, t_enq: float, k: int, state: Any, loc: list[Any]) -> bool:
+    def _call(stage: Stage, i: int, value: Any, t_enq: float, k: int, state: Any, loc: list[Any], cur: Current) -> bool:
         if cancelled():
             fail(Cancelled())
             return False
         if isinstance(value, Failed):             # failed upstream: carried along, not processed
             advance(k, i, value)
             return True
+        cur.index = i
         t0 = clock()
         try:
             out = stage.fn(value, i) if stage.init is None else stage.fn(value, i, state)
@@ -228,6 +258,7 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
         loc: list[Any] = [0, 0, 0.0, 0.0, 0.0, 0]
         accs[k].append(loc)
         state = None
+        cur = _local.cur = Current(stage.name)
         ready = stage.init is None                # False only when init failed: then there is nothing to close
         if stage.init is not None:
             try:
@@ -256,12 +287,12 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
                     while nxt in buffer and not abort.is_set():
                         j, (v, te) = nxt, buffer.pop(nxt)
                         nxt += 1
-                        ok = _call(stage, j, v, te, k, state, loc)
+                        ok = _call(stage, j, v, te, k, state, loc, cur)
                         v = None
                         if not ok:
                             break
                 else:
-                    _call(stage, i, value, t_enq, k, state, loc)
+                    _call(stage, i, value, t_enq, k, state, loc, cur)
                     value = None
         finally:
             if ready and stage.close is not None:
@@ -300,11 +331,13 @@ def run(items: Iterable[Any], stages: list[Stage], *, max_in_flight: int = 8,
         for k, s in enumerate(stages):
             for _ in range(s.workers):
                 qs[k].put(_STOP)
-        deadline = perf_counter() + 30
+        deadline = None if abort_wait is None else perf_counter() + abort_wait
         for t in threads:                         # a call already running cannot be interrupted; wait a bit
-            t.join(timeout=None if not abort_was_set else max(0.0, deadline - perf_counter()))
+            t.join(timeout=None if not abort_was_set or deadline is None else max(0.0, deadline - perf_counter()))
+        stragglers = sum(1 for t in threads if t.is_alive())
         if stats is not None:
             stats.wall_s = perf_counter() - t_start
+            stats.stragglers = stragglers
             stats.stages = []
             for k, s in enumerate(stages):
                 st = StageStats(s.name, s.workers)
