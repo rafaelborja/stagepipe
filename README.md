@@ -447,6 +447,9 @@ do not cover and that the older thread-based libraries have left behind.
 ### Next
 - [ ] `stagepipe.validate()` and a command line check (#13), `contextvars` for stage calls (#14), retry on a result (#15),
       retry counts in `Stats` (#16), a per-call deadline (#17), a checkpoint directory lock (#18).
+- [ ] **Item priority** (#19): an opt-in way to mark an item urgent so the next free worker takes it before
+      earlier, less urgent items. It will not interrupt a call already running, it keeps memory bounded by the
+      window, and it needs a rule for `ordered` stages. Today stage queues are first in, first out.
 - [ ] **Events for dashboards**: a stable, versioned event stream (enter/exit per stage, worker,
       duration, queue depth) written as JSON lines or sent to a callback. A dashboard can be a
       separate project that just reads it.
