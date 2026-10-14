@@ -77,10 +77,9 @@ narrower case where blocking functions in stages should cost almost nothing to r
 Continuous integration repeats the footprint measurement on Linux, Windows and macOS for every
 Python from 3.10 to 3.14, and the full table is published in
 [docs/BENCHMARKS.md](https://github.com/rafaelborja/stagepipe/blob/main/docs/BENCHMARKS.md). Across those 15
-combinations, importing stagepipe 0.1.x cost between 16 and 96 KB of resident memory (0.5 to 2 ms; 0.2 adds the stage kinds, about
-60 KB more on the machine we checked), a
-run of 2,000 items of 20 KB added 0.3 to 0.8 MB, and the machinery cost between 2.6 and 6.6
-microseconds per item for a one-stage run (3.5 to 9.8 for three).
+combinations, importing stagepipe 0.2.0 cost between 40 and 160 KB of resident memory (0.5 to 1.8 ms), a
+run of 2,000 items of 20 KB added 0.35 to 0.72 MB, and the machinery cost between 2.7 and 6.4
+microseconds per item for a one-stage run (4.4 to 9.6 for three).
 
 **Seconds, not nanoseconds.** stagepipe is for pipelines whose steps take milliseconds to minutes
 (an OCR page, an API call, a transcode), where running in parallel saves *seconds*. Ten
@@ -180,6 +179,18 @@ By default, if any stage raises, new work stops, workers drain, and the first ex
 from `run()`. Interrupting the calling thread (Ctrl-C) stops the run just as promptly; a stage call
 that is already running cannot be interrupted, so `run()` waits for it for up to `abort_wait` seconds (30 by default).
 Inside a stage function, `stagepipe.current()` gives the stage name, the item's index and the attempt.
+
+### Just a bounded parallel map
+
+One stage is all you need to call a slow function on many items, N at a time, with results back in
+input order and a way to cancel:
+
+```python
+results = run(items, [Stage("call", lambda value, index: fetch(value), workers=20)], max_in_flight=20)
+```
+
+Set `max_in_flight` to at least `workers`: its default of 8 caps the concurrency. Items are pulled
+lazily, so `items` can be a generator.
 
 ### Which stage is the bottleneck?
 
