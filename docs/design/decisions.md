@@ -105,4 +105,4 @@ design, so a whole-architecture review was requested; its result will be recorde
 - Stack Overflow: held answers (queue maxsize, generator pipeline, large results) can now use 0.1.0;
   drafts live outside the repository.
 
-- **Built 2026-10-14 on main, unreleased (0.2 work):** Transient / Permanent / plain Stage, retries, `recover=` (Skip / Rerun / Fail; shape accepted), `idempotent=`, per-stage `on_error` with `"log"`, `stop=` / `drain=`, `limiter=`, `abort_wait=`, `current()`. Not built yet (0.3): `scratch=`, checkpoint, markers, tombstones for restored items; `ctx.began/finished/saved` are placeholders until then.
+- **Built 2026-10-14, released as 0.2.0:** Transient / Permanent / plain Stage, retries, `recover=` (Skip / Rerun / Fail; shape accepted), `idempotent=`, per-stage `on_error` with `"log"`, `stop=` / `drain=`, `limiter=`, `abort_wait=`, `current()`. Not built yet (0.3): `scratch=`, checkpoint, markers, tombstones for restored items; `ctx.began/finished/saved` are placeholders until then.

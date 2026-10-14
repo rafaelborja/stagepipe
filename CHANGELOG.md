@@ -11,7 +11,12 @@ resume, with markers, scratch directories and ordered-stage gap tokens
 ([#9](https://github.com/rafaelborja/stagepipe/issues/9)), then `stagepipe.validate()` and a command line
 check ([#13](https://github.com/rafaelborja/stagepipe/issues/13)).
 
-### Added (0.2 work)
+## [0.2.0] - 2026-10-14
+
+Stage kinds, retries, a graceful stop and a shared limiter. This release also carries everything of 0.1.1
+(`Stage(close=)`), which was never published on its own.
+
+### Added
 - **Stage kinds.** `Transient(name, fn)` leaves no trace and can be retried, redone and dropped at a stop;
   `Permanent(name, fn)` creates a lasting change and is never repeated on its own. The plain `Stage` is the
   undeclared default and behaves as before, but refuses `retries=`, `recover=` and `idempotent=`. Invalid
@@ -43,7 +48,7 @@ check ([#13](https://github.com/rafaelborja/stagepipe/issues/13)).
 - Import footprint grows by about 60 KB of resident memory on the machine we measured (40 to 100 KB), for the
   stage kinds and stop logic; memory per item and per run is unchanged.
 
-### Added (0.1.2 work)
+### Added (also new since 0.1.0)
 - `run(..., abort_wait=30.0)`: how long `run()` waits, after an abort (stage error, cancel, Ctrl-C), for
   stage calls that are already running. `None` waits as long as it takes. `Stats.stragglers` reports how many
   workers were still running when `run()` returned ([#11](https://github.com/rafaelborja/stagepipe/issues/11)).

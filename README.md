@@ -358,7 +358,7 @@ lighter (about 2 MB less).
 
 ## Status and known limits
 
-**Alpha, version 0.1.1.** It was extracted from a working document-processing pipeline where it
+**Alpha, version 0.2.0.** It was extracted from a working document-processing pipeline where it
 replaces a hand-rolled look-ahead loop, and it passes its tests in CI on CPython 3.10 to 3.14 on Linux, Windows and macOS (and locally on the 3.15 release candidate).
 
 **In use today.** Two services run it in production, and neither needed a change to the library:
@@ -417,7 +417,7 @@ do not cover and that the older thread-based libraries have left behind.
       run ends, even when it aborts, so pooled models can be given back. *Asked for by a production
       user that borrows models from a pool.*
 
-### Done in 0.2 (unreleased)
+### Done in 0.2.0
 - [x] **Stage kinds**: `Transient` (leaves no trace) and `Permanent` (a lasting change), checked when the
       stage is created. A plain `Stage` still works as before.
 - [x] **Retries** with backoff (`retries=`, `backoff=`, `retry_on=`), and `recover=` / `idempotent=` for

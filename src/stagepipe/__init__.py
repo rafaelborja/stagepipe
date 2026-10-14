@@ -4,4 +4,4 @@ from .pipeline import (UNFINISHED, Cancelled, Ctx, Current, Fail, Failed, Perman
 
 __all__ = ["UNFINISHED", "Cancelled", "Ctx", "Current", "Fail", "Failed", "Permanent", "RecoveryError", "Rerun",
            "Skip", "Stage", "StageStats", "Stats", "Transient", "current", "run"]
-__version__ = "0.1.1"
+__version__ = "0.2.0"
