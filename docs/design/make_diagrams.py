@@ -177,6 +177,112 @@ def stop_modes():
     s.save("stop-modes.svg", y + 74)
 
 
+# ---------------------------------------------------------------- 4. priority lanes
+LEVELS = [
+    ("URGENT", "goes first, may preempt", RED_BG, RED),
+    ("HIGH", "share 6", AMBER_BG, AMBER),
+    ("NORMAL", "share 3 (default)", BLUE_BG, BLUE),
+    ("LOW", "share 1", GREEN_BG, GREEN),
+]
+
+
+def priority_lanes():
+    s = Svg(980, "Priority lanes", "An item gets a priority level when it is admitted and keeps it through every stage queue. Each queue serves urgent first, then the other levels by their share, and an item that has been overtaken too often moves to the front of its level.")
+    s.text(24, 34, "Proposal: priority levels, shares and a limit on losing your place (issue #19)", 17, 700)
+    s.text(24, 56, "Nothing here is built. Memory stays bounded by the window: a queue holds only items already admitted, and a level is one small integer per item.", 12, 400, MUTED)
+    cols = [("Admission", "pulls the next input", 24), ("Stage 1 queue", "e.g. download", 350), ("Stage 2 queue", "e.g. ocr", 676)]
+    chips = {
+        0: [["u1"], ["u1"], []],
+        1: [["h1", "h2"], ["h2", "h3"], ["h1"]],
+        2: [["n1", "n2", "n3"], ["n1", "n2"], ["n3"]],
+        3: [["l1", "l2"], ["l1"], ["l2"]],
+    }
+    top, lane_h, col_w = 80, 70, 280
+    for ci, (title, sub, x) in enumerate(cols):
+        s.text(x, top + 8, title, 14, 700)
+        s.text(x + 120, top + 8, sub, 11, 400, MUTED)
+        for li, (name, note, bg, fg) in enumerate(LEVELS):
+            y = top + 22 + li * lane_h
+            s.rect(x, y, col_w, lane_h - 8, bg, fg, 6, 1.2)
+            s.text(x + 10, y + 20, name, 12, 700, fg)
+            s.text(x + 10, y + 36, note, 10.5, 400, MUTED)
+            cx = x + 130
+            for c in chips[li][ci]:
+                s.rect(cx, y + 12, 34, 28, WHITE, fg, 4, 1.2)
+                s.text(cx + 17, y + 31, c, 12, 600, fg, "middle")
+                cx += 40
+        if ci < 2:
+            ay = top + 22 + 2 * lane_h
+            s.line(x + col_w + 4, ay, x + col_w + 40, ay, INK, 2)
+            s.text(x + col_w + 22, ay - 6, "no barrier", 10, 400, MUTED, "middle")
+    y = top + 22 + 4 * lane_h + 10
+    s.rect(24, y, 932, 150, GREY_BG, LINE, 8)
+    s.text(40, y + 26, "How a stage picks its next item", 14, 700)
+    s.lines(40, y + 50, [
+        "1.  URGENT first, always (and it may preempt: see the second diagram).",
+        "2.  Then the levels take turns by share: out of every 10 picks HIGH gets 6, NORMAL 3, LOW 1, so LOW is never starved.",
+        "3.  Inside a level, first in first out. Each time an item is overtaken it counts a loss. After max_bypass losses it moves to the front of its level.",
+        "4.  The level is set once, at admission, and the item carries it through every stage. A stage starts an item the moment the previous stage hands it over.",
+        "5.  ordered=True keeps input order inside one level. Results of different levels may overtake each other.",
+    ], 12, 18)
+    s.save("priority-lanes.svg", y + 170)
+
+
+def wrap(text, n):
+    out, ln = [], ""
+    for wd in text.split():
+        if len(ln) + len(wd) > n:
+            out.append(ln)
+            ln = wd
+        else:
+            ln = (ln + " " + wd).strip()
+    out.append(ln)
+    return out
+
+
+# ---------------------------------------------------------------- 5. what URGENT can do to a running call
+def priority_urgent():
+    s = Svg(980, "Urgent items and running calls", "An urgent item never waits behind lower levels in a queue. A running call is only preempted if its stage is Transient and the stage allows it; Permanent and undeclared stages are never interrupted.")
+    s.text(24, 34, "Proposal: what an URGENT item can do to work that is already running", 17, 700)
+    s.text(24, 56, "A Python thread cannot be killed. 'Preempt' means: abandon the call, discard its result, put the item back. Nothing is built.", 12, 400, MUTED)
+    cols = [("Stage kind of the running call", 250), ("What URGENT does", 330), ("Why / cost", 352)]
+    x0, y0 = 24, 78
+    x = x0
+    for label, w in cols:
+        s.rect(x, y0, w, 30, INK, INK, 4)
+        s.text(x + 10, y0 + 20, label, 12, 700, WHITE)
+        x += w
+    rows = [
+        ("Transient", "leaves no trace", ("Preempts it: the call is abandoned, the item goes back to its lane and is redone", GREEN_BG, GREEN),
+         "Safe to repeat. Costs a leaked thread until it returns (same machinery as the deadline work, #17). Counts one loss for the item."),
+        ("Permanent", "a lasting change", ("Never preempted. URGENT takes the next free worker", RED_BG, RED),
+         "Interrupting could leave a half-done effect. The wait is at most one call."),
+        ("Plain Stage", "undeclared", ("Never preempted, treated like Permanent", AMBER_BG, AMBER),
+         "We do not know that it is safe to repeat, so we assume it is not."),
+        ("Not started yet", "waiting in a queue", ("Goes to the front of the queue, ahead of every other level", GREEN_BG, GREEN),
+         "Costs nothing. Items it overtakes each count one loss."),
+    ]
+    y = y0 + 38
+    for kind, sub, (a, abg, afg), b in rows:
+        s.rect(x0, y, 250, 62, WHITE, LINE, 4)
+        s.text(x0 + 10, y + 26, kind, 13, 700)
+        s.text(x0 + 10, y + 44, sub, 11, 400, MUTED)
+        s.rect(x0 + 250, y, 330, 62, abg, LINE, 4)
+        s.lines(x0 + 260, y + 22, wrap(a, 44), 11.5, 15, afg, 600)
+        s.rect(x0 + 580, y, 352, 62, WHITE, LINE, 4)
+        s.lines(x0 + 590, y + 20, wrap(b, 50), 11, 14, MUTED)
+        y += 68
+    s.rect(24, y + 6, 932, 92, GREY_BG, LINE, 8)
+    s.lines(40, y + 30, [
+        "No reserved slots and the window does not grow. A full window gives URGENT the place of the lowest-level item that has not started a call.",
+        "No endless losing: an item that has lost its place max_bypass times can no longer be overtaken or preempted. It runs next.",
+        "Checkpoints still hold: a preempted item writes nothing and is redone, a saved result is never discarded.",
+    ], 12, 20)
+    s.save("priority-urgent.svg", y + 116)
+
+
 hierarchy()
 matrix()
 stop_modes()
+priority_lanes()
+priority_urgent()
